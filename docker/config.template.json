@@ -183,5 +183,15 @@
         {
             "cookie": "多账号 cookie 填写，请参考上面，cookie 以实际获取为准（遇到特殊字符如双引号\" 请加反斜杠转义）"
         }
+    ],
+    "LDOH": [
+        {
+            "ldoh_url": "https://ldoh.105117.xyz/",
+            "exclude_domains": [],
+            "max_sites": 0,
+            "refresh_on_start": false,
+            "login_is_checkin": ["ps.air-outer.com", "anyrouter.top"],
+            "interactive_login_wait_sec": 120
+        }
     ]
 }

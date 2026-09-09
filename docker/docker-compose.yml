@@ -1,11 +1,39 @@
 version: '3'
+
+# 用法:
+#   - 直接 docker compose up -d 启动 (容器内自带 Chromium, 需暴露 CDP)
+#   - 复用宿主 Chrome: 设置 CDP_PORT=宿主端口, 不启动容器内 Chromium
+#
+# 注意:
+#   ldoh 模块需要长期保留 LinuxDo 登录态, 因此 Chrome profile 挂载为命名卷。
+#   首次运行需在浏览器里手动登录一次 ldoh, 后续自动复用。
+
 services:
   dailycheckin:
-    image: sitoi/dailycheckin:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: godlockin/dailycheckin:latest
     container_name: dailycheckin
     restart: always
     tty: true
+    # 容器内自动启动 Chromium 远程调试
+    command: >
+      sh -c "chromium $${CHROMIUM_FLAGS} --remote-debugging-port=$${DAILYCHECKIN_CDP_PORT}
+             --remote-debugging-address=0.0.0.0
+             --user-data-dir=/dailycheckin/chrome-profile
+             about:blank &"
+      sleep 3 && dailycheckin
+    ports:
+      - "9333:9333"   # 容器内 Chromium 远程调试, 可被宿主机/外部调用
+    environment:
+      - DAILYCHECKIN_CDP_PORT=9333
+      - TZ=Asia/Shanghai
     volumes:
       - ./config/:/dailycheckin/config/
       - ./logs/:/dailycheckin/logs/
       - ./cron/:/dailycheckin/cron/
+      - chrome-profile:/dailycheckin/chrome-profile   # 持久化 LinuxDo 登录态
+
+volumes:
+  chrome-profile:

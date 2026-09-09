@@ -1,0 +1,476 @@
+{
+ "sites": [
+  {
+   "name": "DGB 公益站",
+   "apiBaseUrl": "https://freeapi.dgbmc.top",
+   "supportsCheckin": true,
+   "checkinUrl": "https://freeapi.dgbmc.top/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "GLM",
+    "GPT",
+    "Grok",
+    "Kimi",
+    "Minimax",
+    "关闭注册",
+    "已关闭注册"
+   ]
+  },
+  {
+   "name": "Mitchll-API",
+   "apiBaseUrl": "https://api.mitchll.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.mitchll.com/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude",
+    "GPT",
+    "Gemini",
+    "Qwen",
+    "关闭注册"
+   ]
+  },
+  {
+   "name": "Caroline公益站",
+   "apiBaseUrl": "https://api.697351.xyz",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Codex",
+    "DeepSeek"
+   ]
+  },
+  {
+   "name": "君の公益",
+   "apiBaseUrl": "https://muyuan.do",
+   "supportsCheckin": true,
+   "checkinUrl": "https://muyuan.do/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "GLM",
+    "Gemini",
+    "已关闭注册",
+    "签到"
+   ]
+  },
+  {
+   "name": "薄荷 API",
+   "apiBaseUrl": "https://x666.me",
+   "supportsCheckin": true,
+   "checkinUrl": "https://qd.x666.me",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Codex",
+    "Gemini",
+    "关闭注册"
+   ]
+  },
+  {
+   "name": "773公益站",
+   "apiBaseUrl": "https://api-yi-hydrogel.seeseed1ck.icu",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude",
+    "DeepSeek",
+    "GLM",
+    "GPT",
+    "Kimi",
+    "兑换码"
+   ]
+  },
+  {
+   "name": "RelayFor公益站",
+   "apiBaseUrl": "https://relayfor.xyz",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GPT",
+    "不定时开放注册",
+    "注册20刀",
+    "订阅制"
+   ]
+  },
+  {
+   "name": "iMeagicAPI",
+   "apiBaseUrl": "https://newapi.imagic.eu.org",
+   "supportsCheckin": true,
+   "checkinUrl": "https://newapi.imagic.eu.org/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Grok",
+    "关闭注册"
+   ]
+  },
+  {
+   "name": "zifeiyu公益站",
+   "apiBaseUrl": "https://ai.112102.xyz",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "Qwen",
+    "不定时开放注册",
+    "关闭注册",
+    "商业站",
+    "签到"
+   ]
+  },
+  {
+   "name": "Ciallo~ 公益站",
+   "apiBaseUrl": "https://ioll.pp.ua",
+   "supportsCheckin": true,
+   "checkinUrl": "https://ioll.pp.ua/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "GPT",
+    "Gemini",
+    "Grok",
+    "Kimi",
+    "MiMo",
+    "Minimax",
+    "Qwen",
+    "已关闭注册"
+   ]
+  },
+  {
+   "name": "WONG公益站",
+   "apiBaseUrl": "https://wzw.pp.ua",
+   "supportsCheckin": true,
+   "checkinUrl": "https://wzw.pp.ua/console/topup",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "GPT",
+    "Kimi",
+    "Qwen"
+   ]
+  },
+  {
+   "name": "Mu.Li",
+   "apiBaseUrl": "https://demo.dev2.mulink.top",
+   "supportsCheckin": true,
+   "checkinUrl": "https://demo.dev2.mulink.top/wallet",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "Minimax",
+    "Qwen",
+    "有专用的翻译分组",
+    "翻译",
+    "订阅制"
+   ]
+  },
+  {
+   "name": "HongShi API",
+   "apiBaseUrl": "https://api.hongshi.cc.cd",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "codex无法使用",
+    "不定时开放注册",
+    "已关闭注册",
+    "有专用的翻译分组",
+    "签到"
+   ]
+  },
+  {
+   "name": "liWAN LAB",
+   "apiBaseUrl": "https://metapi.lilililwan.xyz",
+   "supportsCheckin": true,
+   "checkinUrl": "https://metapi.lilililwan.xyz/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "Grok"
+   ]
+  },
+  {
+   "name": "ArkAPI",
+   "apiBaseUrl": "https://windhub.cc",
+   "supportsCheckin": true,
+   "checkinUrl": "https://windhub.cc/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude Code",
+    "Codex",
+    "DeepSeek",
+    "GLM",
+    "Grok",
+    "Qwen",
+    "翻译"
+   ]
+  },
+  {
+   "name": "Huan API",
+   "apiBaseUrl": "https://ai.huan666.de",
+   "supportsCheckin": true,
+   "checkinUrl": "https://ai.huan666.de/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude无法使用",
+    "Grok"
+   ]
+  },
+  {
+   "name": "Lufei公益站",
+   "apiBaseUrl": "https://xgent.me",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "关闭注册",
+    "无法注册"
+   ]
+  },
+  {
+   "name": "agentrouter.org",
+   "apiBaseUrl": "https://ps.air-outer.com",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude Code",
+    "Claude-opus-4.8",
+    "GPT",
+    "关闭注册",
+    "签到"
+   ]
+  },
+  {
+   "name": "Any Router",
+   "apiBaseUrl": "https://anyrouter.top",
+   "supportsCheckin": true,
+   "checkinUrl": "https://anyrouter.top",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude Code",
+    "Codex",
+    "Gemini CLI",
+    "签到"
+   ]
+  },
+  {
+   "name": "Pomelo",
+   "apiBaseUrl": "https://api.67.si",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.67.si/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": []
+  },
+  {
+   "name": "Embedding",
+   "apiBaseUrl": "https://router.tumuer.me",
+   "supportsCheckin": true,
+   "checkinUrl": "https://router.tumuer.me/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": []
+  },
+  {
+   "name": "BER分公益站",
+   "apiBaseUrl": "https://ai.berf1.cn",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "可LDC支付",
+    "无法注册",
+    "注册无额度",
+    "签到"
+   ]
+  },
+  {
+   "name": "nhh站",
+   "apiBaseUrl": "https://api.123nhh.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.123nhh.com/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "已关闭注册"
+   ]
+  },
+  {
+   "name": "呆瓜API",
+   "apiBaseUrl": "https://api.daigua.icu",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "GPT",
+    "商业站"
+   ]
+  },
+  {
+   "name": "Old 公益站",
+   "apiBaseUrl": "https://sakuradori.dpdns.org",
+   "supportsCheckin": true,
+   "checkinUrl": "",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "GPT",
+    "关闭注册"
+   ]
+  },
+  {
+   "name": "小天公益站",
+   "apiBaseUrl": "https://new-api.xt-url.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://checkin.new-api.xt-url.com/",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "GLM",
+    "Kimi",
+    "Minimax",
+    "关闭注册",
+    "翻译"
+   ]
+  },
+  {
+   "name": "雨落千息 公益开放平台",
+   "apiBaseUrl": "https://platform.rainflowtb.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://platform.rainflowtb.com/checkin",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "可LDC支付",
+    "注册无额度",
+    "签到"
+   ]
+  },
+  {
+   "name": "月城公益站",
+   "apiBaseUrl": "https://52ccl.net",
+   "supportsCheckin": true,
+   "checkinUrl": "https://ai.52ccl.cn/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "签到"
+   ]
+  },
+  {
+   "name": "小鸡毛の公益站",
+   "apiBaseUrl": "https://api.ark717.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.ark717.com/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Codex",
+    "GPT",
+    "无法注册",
+    "注册20刀",
+    "签到",
+    "额度兑换码"
+   ]
+  },
+  {
+   "name": "42公益站",
+   "apiBaseUrl": "https://api.42w.shop",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.42w.shop/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "Claude",
+    "Codex",
+    "DeepSeek",
+    "Minimax",
+    "签到"
+   ]
+  },
+  {
+   "name": "老魔公益站",
+   "apiBaseUrl": "https://api.2020111.xyz",
+   "supportsCheckin": true,
+   "checkinUrl": "https://api.2020111.xyz/profile",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "关闭注册",
+    "翻译"
+   ]
+  },
+  {
+   "name": "随时跑路公益站",
+   "apiBaseUrl": "https://runanytime.hxi.me",
+   "supportsCheckin": true,
+   "checkinUrl": "https://runanytime.hxi.me/console/personal",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "GPT",
+    "Gemini",
+    "Kimi",
+    "MiMo",
+    "Minimax",
+    "不定时开放注册",
+    "关闭注册",
+    "签到"
+   ]
+  },
+  {
+   "name": "qq1244",
+   "apiBaseUrl": "https://new-api.abrdns.com",
+   "supportsCheckin": true,
+   "checkinUrl": "https://checkin.new-api.abrdns.com/",
+   "isRunaway": false,
+   "isFakeCharity": false,
+   "tags": [
+    "DeepSeek",
+    "GLM",
+    "Kimi",
+    "Qwen",
+    "注册无额度"
+   ]
+  }
+ ],
+ "_meta": {
+  "source": "ldoh.105117.xyz",
+  "updated": "2026-09-06",
+  "note": "Refresh via: python -m dailycheckin.ldoh.refresh"
+ }
+}
