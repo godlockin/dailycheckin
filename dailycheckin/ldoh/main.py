@@ -27,6 +27,7 @@ logger = logging.getLogger("dailycheckin.ldoh")
 
 DEFAULT_LDOH_URL = "https://ldoh.105117.xyz/"
 SITES_FILE = Path(__file__).parent / "sites.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # ldoh/ -> dailycheckin/ -> root/
 
 # 标红 tag → 视为跑路/不可用
 RED_TAGS = {"无法使用", "无法访问", "无法登录", "已无法LD登录", "无法签到"}
@@ -42,6 +43,14 @@ class LdohCheckIn(CheckIn):
         self.check_item = check_item or {}
         self.ldoh_url = self.check_item.get("ldoh_url") or DEFAULT_LDOH_URL
         self.exclude = set(self.check_item.get("exclude_domains") or [])
+        # 自动加载 data/skip_sites.json (熔断: 同站连续失败 2 次跳过)
+        skip_path = Path(self.check_item.get("skip_sites_file") or PROJECT_ROOT / "data" / "skip_sites.json")
+        try:
+            if skip_path.exists():
+                skip = json.loads(skip_path.read_text(encoding="utf-8"))
+                self.exclude |= {h for h, n in (skip or {}).items() if (n or 0) >= 2}
+        except Exception as e:
+            print(f"WARN: 读 skip_sites.json 失败: {e}")
         self.max_sites = int(self.check_item.get("max_sites") or 0)
         self.refresh_on_start = bool(self.check_item.get("refresh_on_start"))
         self.login_is_checkin = set(
@@ -186,6 +195,23 @@ class LdohCheckIn(CheckIn):
         finally:
             bridge.quit()
 
+        # 熔断回路: 失败站点 +1, 成功重置; 写回 skip_sites.json
+        try:
+            skip_path = PROJECT_ROOT / "data" / "skip_sites.json"
+            existing = {}
+            if skip_path.exists():
+                existing = json.loads(skip_path.read_text(encoding="utf-8"))
+            for r in results:
+                h = r["host"]
+                if r.get("status") in ("failed", "error", "login_failed"):
+                    existing[h] = (existing.get(h) or 0) + 1
+                elif r.get("status") in ("ok", "already"):
+                    existing.pop(h, None)  # 成功就清零
+            skip_path.parent.mkdir(parents=True, exist_ok=True)
+            skip_path.write_text(json.dumps(existing, indent=1), encoding="utf-8")
+        except Exception as e:
+            print(f"WARN: 写 skip_sites.json 失败: {e}")
+
         ok = sum(1 for r in results if r.get("status") == "ok")
         already = sum(1 for r in results if r.get("status") == "already")
         failed = sum(1 for r in results if r.get("status") in ("failed", "error", "login_failed"))
@@ -196,18 +222,35 @@ class LdohCheckIn(CheckIn):
     # ------------------------------------------------------------------ 单站
 
     def _process_site(self, bridge: CDPBridge, tab_id: str, site: dict[str, Any]) -> dict[str, Any]:
-        # 1. 打开登录页
-        try:
-            bridge.goto(tab_id, f"{site['url']}/login", 30000)
-        except UnreachableError as e:
-            return {"status": "unreachable", "message": str(e)[:120]}
-        bridge.wait(2000)
+        # 1. 打开登录页 (多路径候选: 各 fork 不一样)
+        login_paths = self.check_item.get("login_paths") or ("/login", "/sign-in", "/auth/login")
+        page_loaded_at = None
+        for p in login_paths:
+            try:
+                bridge.goto(tab_id, f"{site['url']}{p}", 30000)
+            except UnreachableError as e:
+                return {"status": "unreachable", "message": str(e)[:120]}
+            bridge.wait(2500)
+            # 检查是否找到 LinuxDO 按钮; 找到了就停
+            try:
+                probe = bridge.eval(
+                    tab_id,
+                    "(() => { const els=[...document.querySelectorAll('button, a, [role=button]')];"
+                    " return els.some(e => /linux|linuxdo/i.test((e.textContent||'')+(e.getAttribute('href')||''))); })()",
+                )
+                if probe:
+                    page_loaded_at = p
+                    break
+            except Exception:
+                pass
+        if not page_loaded_at:
+            return {"status": "login_disabled", "message": f"所有登录路径都找不到 LinuxDO 按钮: {login_paths}"}
 
-        # 2. 找登录按钮
+        # 2. 找登录按钮 (注意: 禁用按钮也算找到, 后面单独判断)
         btn = bridge.eval(
             tab_id,
             "(() => { const els=[...document.querySelectorAll('button, a, [role=button]')];"
-            " const el=els.find(e => /linux/i.test((e.textContent||'')+(e.getAttribute('href')||'')) && !e.disabled);"
+            " const el=els.find(e => /linux|linuxdo/i.test((e.textContent||'')+(e.getAttribute('href')||'')));"
             " return el ? {tag:el.tagName, txt:(el.textContent||'').trim().slice(0,30), disabled:el.disabled} : null; })()",
         )
         if not btn:
