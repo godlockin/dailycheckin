@@ -19,6 +19,11 @@ COPY dailycheckin /dailycheckin/dailycheckin
 COPY cdp /dailycheckin/cdp
 COPY docker/config.template.json /dailycheckin/config.template.json
 
+# 用我们 fork 的源码覆盖 pip 安装的 dailycheckin (否则新模块 ldoh/pkulaw 等不被发现)
+RUN rm -rf /root/.local/lib/python3.11/site-packages/dailycheckin /usr/local/lib/python3.11/site-packages/dailycheckin && \
+    cp -R /dailycheckin/dailycheckin /usr/local/lib/python3.11/site-packages/ && \
+    find /usr/local/lib/python3.11/site-packages/dailycheckin -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; true
+
 # 默认 CDP 端口; 通过环境变量可改
 ENV DAILYCHECKIN_CDP_PORT=9333
 # alpine 容器无 GPU/Vulkan: 用老 headless 模式 + 软件 swiftshader 渲染
