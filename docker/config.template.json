@@ -193,5 +193,14 @@
             "login_is_checkin": ["ps.air-outer.com", "anyrouter.top"],
             "interactive_login_wait_sec": 120
         }
+    ],
+    "PKULAW": [
+        {
+            "token": "eyJhbGciOiJSUzI1NiIs...",
+            "name": "我的账号"
+        },
+        {
+            "token": "多账号 token 填写，参考上面"
+        }
     ]
 }
