@@ -205,6 +205,11 @@ async function handleOp(req) {
         const data = await tab.eval(req.expression, !!req.awaitPromise);
         return { ok: true, data };
       }
+      case 'sendCdp': {
+        const tab = getTab(req.tabId);
+        const data = await tab.send(req.method, req.params || {});
+        return { ok: true, data };
+      }
       case 'fetch': {
         const tab = getTab(req.tabId);
         const data = await tab.fetchIn(req.url, req.method || 'GET', req.headers || null);

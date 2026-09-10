@@ -75,7 +75,7 @@ python -m dailycheckin.pkulaw.login_helper --cdp-port 9333
 
 ```bash
 # 干跑 (只看登录态)
-PYTHONPATH=. python3 -c "from dailycheckin.pkulaw.main import PkulawCheckIn; print(PkulawCheckIn([{'token':'xxx'}]).main())"
+PYTHONPATH=. python3 -c "from dailycheckin.pkulaw.main import Pkulaw; print(Pkulaw([{'token':'xxx'}]).main())"
 
 # 完整 dailycheckin 主流程 (会签所有配置的平台)
 dailycheckin --include PKULAW
@@ -85,7 +85,7 @@ Docker 里:
 ```bash
 docker exec -it dailycheckin sh -c \
   "PYTHONPATH=/dailycheckin python3 -c \
-   'from dailycheckin.pkulaw.main import PkulawCheckIn; print(PkulawCheckIn([]).main())'"
+   'from dailycheckin.pkulaw.main import Pkulaw; print(Pkulaw([]).main())'"
 ```
 
 或直接放 config.json 里跑 dailycheckin.

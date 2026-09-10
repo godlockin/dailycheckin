@@ -14,6 +14,10 @@ RUN set -ex \
     && pip install --no-cache-dir dailycheckin --upgrade \
     && ln -s /root/.local/bin/dailycheckin /usr/bin/dailycheckin
 
+# 复制入口脚本
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # 直接 COPY 项目子目录 (避免 docker/Dockerfile ADD . 把整个项目扔进去)
 COPY dailycheckin /dailycheckin/dailycheckin
 COPY cdp /dailycheckin/cdp
@@ -31,5 +35,6 @@ ENV DAILYCHECKIN_CDP_PORT=9333
 # alpine 容器无 GPU/Vulkan: 用老 headless 模式 + 软件 swiftshader 渲染
 ENV CHROMIUM_FLAGS="--headless --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --use-gl=swiftshader --no-first-run --hide-scrollbars --mute-audio --disable-extensions"
 
-# 默认不启动; docker-compose 的 command 拉起 chromium + dailycheckin
-CMD ["dailycheckin"]
+# 默认不启动; docker-compose 的 command 调用 entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD []

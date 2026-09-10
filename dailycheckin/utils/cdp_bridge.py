@@ -184,6 +184,10 @@ class CDPBridge:
     def click_text(self, tab_id: str, text: str) -> dict:
         return self._call("click", tabId=tab_id, text=text)
 
+    def send_cdp(self, tab_id: str, method: str, params: dict | None = None) -> dict | None:
+        """透传任意 CDP 命令 (如 Input.insertText / Input.dispatchKeyEvent)."""
+        return self._call("sendCdp", tabId=tab_id, method=method, params=params or {})
+
     def wait(self, ms: int) -> None:
         self._call("wait", ms=ms)
 

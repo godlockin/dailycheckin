@@ -205,5 +205,13 @@
             "name": "多账号 2",
             "token": "多账号 token 填写，参考上面"
         }
+    ],
+    "TUSHARE": [
+        {
+            "name": "我的tushare账号",
+            "username": "13122249996",
+            "password": "StevenChen001!",
+            "cdp_port": 9333
+        }
     ]
 }

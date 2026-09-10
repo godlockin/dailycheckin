@@ -18,18 +18,8 @@ services:
     environment:
       - DAILYCHECKIN_CDP_PORT=9333
       - TZ=Asia/Shanghai
-    # 容器启动: 后台拉 Chromium 远程调试, 等 15s 再跑 dailycheckin
-    command: >
-      sh -c "chromium $${CHROMIUM_FLAGS}
-             --remote-debugging-port=$${DAILYCHECKIN_CDP_PORT}
-             --remote-debugging-address=0.0.0.0
-             --user-data-dir=/dailycheckin/chrome-profile
-             about:blank &
-             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-               curl -sf http://127.0.0.1:$${DAILYCHECKIN_CDP_PORT}/json/version > /dev/null && break
-               sleep 1
-             done
-             dailycheckin"
+    # 容器启动: 用 entrypoint.sh 拉起 chromium + dailycheckin (单行, 避免 sh 多行解析坑)
+    command: []
     volumes:
       - ./config/:/dailycheckin/config/
       - ./logs/:/dailycheckin/logs/
