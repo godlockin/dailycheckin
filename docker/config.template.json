@@ -196,10 +196,13 @@
     ],
     "PKULAW": [
         {
+            "name": "我的账号",
             "token": "eyJhbGciOiJSUzI1NiIs...",
-            "name": "我的账号"
+            "refresh_token": "eyJhbGciOiJSUzI1NiIs...(选填, 提供后自动续期)",
+            "client_id": "wso2"
         },
         {
+            "name": "多账号 2",
             "token": "多账号 token 填写，参考上面"
         }
     ]

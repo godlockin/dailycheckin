@@ -1,12 +1,25 @@
-"""pkulaw 北大法宝每日签到 (Bearer Token)
+"""pkulaw 北大法宝每日签到 (Bearer Token, 自动 OAuth refresh)
 
-简单的 HTTP-only 签到: POST /api-portal/rewards/daily/claim + Bearer JWT.
-Token 由 keycloak 颁发, 1 天左右有效, 需用户在浏览器登录后从 DevTools 拷贝过来
-(参考 README)。
+Token 由 Keycloak (cas.pkulaw.com/auth/realms/fabao) 颁发。
+提供 refresh_token 后, 模块会在以下时机自动续期:
+  1. 调用前检查 exp; 即将过期 (60s 内) 时主动 refresh
+  2. 任何请求返回 401 时, 自动 refresh 一次再 retry
 
-使用:
-  config.json 里加 "PKULAW": [{"token": "<JWT>", "name": "<昵称>"}]
-  跑 dailycheckin --include PKULAW
+新 token 原子写回 config.json, 不需要人工干预。
+
+配置 (config.json):
+  "PKULAW": [
+    {
+      "name": "我的账号",
+      "token": "eyJhbGc...",
+      "refresh_token": "eyJhbGc...",
+      "client_id": "wso2"
+    }
+  ]
+
+要拿 refresh_token: 浏览器登录 pkulaw, DevTools -> Application ->
+Cookies/LocalStorage 找 keycloak session 里的 refresh_token.
+也可以用 `python -m dailycheckin.pkulaw.login_helper` (CDP 自动捕获).
 """
 from __future__ import annotations
 
@@ -18,6 +31,16 @@ from typing import Any
 
 import requests
 from dailycheckin import CheckIn
+
+from dailycheckin.pkulaw.auth import (
+    RefreshError,
+    decode_jwt,
+    find_config_path,
+    is_token_expired,
+    parse_iss_for_realm,
+    persist_new_tokens,
+    refresh_tokens,
+)
 
 logger = logging.getLogger("dailycheckin.pkulaw")
 
@@ -47,7 +70,6 @@ DEFAULT_HEADERS_BASE = {
     "sec-ch-ua-platform": '"macOS"',
 }
 
-# 常见提示
 ALREADY_PAT = re.compile(r"已签|已领取|今日已|already|重复|完成", re.I)
 SUCCESS_PAT = re.compile(r"成功|签到|领取|获得|success|ok", re.I)
 TOKEN_EXPIRED_PAT = re.compile(r"token|unauthor|expired|invalid_grant|401")
@@ -57,7 +79,9 @@ class PkulawCheckIn(CheckIn):
     name = "Pkulaw 北大法宝"
 
     def __init__(self, check_item: dict[str, Any]):
-        self.check_item = check_item or {}
+        self.check_item = check_item or []
+        # 复用 dailycheckin 约定: config.json 找
+        self.config_path = find_config_path()
 
     def _session(self) -> requests.Session:
         s = requests.Session()
@@ -65,8 +89,52 @@ class PkulawCheckIn(CheckIn):
         s.timeout = 30
         return s
 
+    # ------------------------------------------------------------------ refresh
+
+    def _try_refresh(self, account: dict[str, Any]) -> dict[str, Any] | None:
+        """调 Keycloak refresh_token grant. 成功返回新 token dict, 失败返回 None.
+
+        不抛, 失败时让上层记 login_failed.
+        """
+        refresh_token = (account.get("refresh_token") or "").strip()
+        if not refresh_token:
+            return None
+        # 从 token 拿 realm
+        realm_info = parse_iss_for_realm(account.get("token", ""))
+        base, realm = (realm_info if realm_info else (None, None))
+        if not base or not realm:
+            base, realm = "https://cas.pkulaw.com", "fabao"
+        try:
+            new_tokens = refresh_tokens(
+                refresh_token,
+                realm=realm,
+                base=base,
+                client_id=account.get("client_id") or None,
+                client_secret=account.get("client_secret") or None,
+            )
+            return new_tokens
+        except RefreshError as e:
+            logger.warning("refresh_token 失败: %s", e)
+            return None
+        except Exception as e:
+            logger.warning("refresh_token 异常: %s", e)
+            return None
+
+    def _persist(self, idx: int, account: dict[str, Any], new_access: str, new_refresh: str) -> None:
+        if not self.config_path:
+            logger.info("未找到 config.json, 新 token 仅本次生效 (重启后丢失)")
+            return
+        if persist_new_tokens(self.config_path, idx, new_access, new_refresh):
+            account["token"] = new_access
+            if new_refresh:
+                account["refresh_token"] = new_refresh
+            print(f"  [refresh] 已写回新 token 到 {self.config_path}", flush=True)
+        else:
+            print(f"  [refresh] 写回 {self.config_path} 失败", flush=True)
+
+    # ------------------------------------------------------------------ verify / claim
+
     def _verify(self, token: str) -> tuple[bool, str]:
-        """可选: 调 /profile 验证 token 是否过期, 顺便拿昵称"""
         s = self._session()
         s.headers["Authorization"] = f"Bearer {token}"
         try:
@@ -81,7 +149,6 @@ class PkulawCheckIn(CheckIn):
             data = r.json()
         except Exception:
             return True, "token 有效 (无法解析 profile)"
-        # 找昵称
         data_field = data.get("data") if isinstance(data, dict) else None
         name = ""
         if isinstance(data_field, dict):
@@ -90,47 +157,91 @@ class PkulawCheckIn(CheckIn):
             name = data.get("preferred_username") or ""
         return True, name
 
+    def _claim(self, token: str) -> requests.Response:
+        s = self._session()
+        s.headers["Authorization"] = f"Bearer {token}"
+        return s.post(CLAIM_URL, data=json.dumps({}))
+
+    # ------------------------------------------------------------------ main
+
     def main(self) -> str:
         results: list[dict[str, Any]] = []
         for idx, account in enumerate(self.check_item or []):
             token = (account.get("token") or "").strip()
             name = (account.get("name") or f"账号{idx + 1}").strip()
             rec: dict[str, Any] = {"name": name}
+
             if not token:
                 rec.update(status="skipped", message="token 为空, 跳过")
                 results.append(rec)
                 continue
-            # 先验 token (token 过期直接报错, 不调 claim)
+
+            # 1. 主动续期: token 即将过期
+            if is_token_expired(token, skew_sec=60):
+                refreshed = self._try_refresh(account)
+                if refreshed:
+                    token = refreshed["access_token"]
+                    self._persist(idx, account, token, refreshed.get("refresh_token", ""))
+                    print(f"  [refresh] {name} 主动续期成功", flush=True)
+                else:
+                    rec.update(status="login_failed", message="token 过期且 refresh_token 失败")
+                    results.append(rec)
+                    continue
+
+            # 2. 验证 token
             ok, info = self._verify(token)
             if not ok:
-                rec.update(status="login_failed", message=info)
-                results.append(rec)
-                continue
-            if info and not name:
+                # 401 触发 fallback refresh
+                if "401" in info or "过期" in info:
+                    refreshed = self._try_refresh(account)
+                    if refreshed:
+                        token = refreshed["access_token"]
+                        self._persist(idx, account, token, refreshed.get("refresh_token", ""))
+                        ok, info = self._verify(token)
+                if not ok:
+                    rec.update(status="login_failed", message=info)
+                    results.append(rec)
+                    continue
+
+            if info and not (account.get("name")):
                 rec["name"] = info
                 name = info
 
-            # POST 签到
-            s = self._session()
-            s.headers["Authorization"] = f"Bearer {token}"
+            # 3. POST claim
             try:
-                resp = s.post(CLAIM_URL, data=json.dumps({}))
+                resp = self._claim(token)
             except Exception as e:
                 rec.update(status="error", message=f"请求异常: {e}")
                 results.append(rec)
                 continue
 
+            # 4. 401 → 一次 refresh + retry
+            if resp.status_code == 401:
+                refreshed = self._try_refresh(account)
+                if refreshed:
+                    token = refreshed["access_token"]
+                    self._persist(idx, account, token, refreshed.get("refresh_token", ""))
+                    try:
+                        resp = self._claim(token)
+                    except Exception as e:
+                        rec.update(status="error", message=f"refresh 后请求异常: {e}")
+                        results.append(rec)
+                        continue
+                else:
+                    rec.update(status="login_failed", message="401 且 refresh_token 失败")
+                    results.append(rec)
+                    continue
+
             text = (resp.text or "").strip()
-            if resp.status_code == 401 or TOKEN_EXPIRED_PAT.search(text):
-                rec.update(status="login_failed", message=f"token 过期 (HTTP {resp.status_code})")
-                results.append(rec)
-                continue
-            if resp.status_code != 200:
+            if resp.status_code != 200 and not TOKEN_EXPIRED_PAT.search(text):
                 rec.update(status="failed", message=f"HTTP {resp.status_code}: {text[:120]}")
                 results.append(rec)
                 continue
+            if resp.status_code != 200:
+                rec.update(status="login_failed", message=f"token 过期 (HTTP {resp.status_code})")
+                results.append(rec)
+                continue
 
-            # 尝试解析 JSON
             data: Any = None
             try:
                 data = resp.json()
@@ -139,7 +250,6 @@ class PkulawCheckIn(CheckIn):
 
             msg = ""
             success_flag = False
-            already_flag = False
             if isinstance(data, dict):
                 msg = str(data.get("message") or data.get("msg") or "")
                 success_flag = bool(data.get("success", False))
@@ -154,12 +264,13 @@ class PkulawCheckIn(CheckIn):
                 already_flag = True
             elif SUCCESS_PAT.search(msg) or success_flag:
                 already_flag = False
+            else:
+                already_flag = False
             rec["message"] = msg[:150]
             rec["status"] = "already" if already_flag else ("ok" if success_flag or SUCCESS_PAT.search(msg) else "failed")
             results.append(rec)
-            time.sleep(1)  # 礼貌节流
+            time.sleep(1)
 
-        # 汇总
         ok = sum(1 for r in results if r.get("status") == "ok")
         already = sum(1 for r in results if r.get("status") == "already")
         failed = sum(1 for r in results if r.get("status") in ("failed", "error", "login_failed"))
