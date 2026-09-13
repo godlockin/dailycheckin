@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import time
@@ -7,16 +8,31 @@ import requests
 
 from dailycheckin import CheckIn
 
+logger = logging.getLogger("dailycheckin.baiduwp")
+
 
 class BaiduWP(CheckIn):
     name = "百度网盘"
     """
     百度网盘会员成长值签到和答题功能。
     传入cookie 自动完成签到、答题和会员信息查询。
+
+    配置 (config.json):
+      "BAIDUWP": [
+        {
+          "name": "我的账号",
+          "cookie": "BDUSS=xxx; STOKEN=xxx; ..."   // 可省, 走 CDP fallback
+        }
+      ]
+
+    没 cookie 时自动从 9333 Chrome 已登录的 pan.baidu.com tab 抓
     """
 
     def __init__(self, check_item: dict):
-        self.cookie = check_item.get("cookie")
+        self.cookie = (check_item.get("cookie") or "").strip()
+        self.cdp_port = int(os.environ.get("DAILYCHECKIN_CDP_PORT", "9333"))
+        if not self.cookie:
+            self.cookie = self._cdp_cookie() or ""
         self.session = requests.Session()
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
@@ -28,6 +44,41 @@ class BaiduWP(CheckIn):
             "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
             "Cookie": self.cookie,
         }
+
+    def _cdp_cookie(self) -> str | None:
+        """从 9333 Chrome 已登录的 pan.baidu.com tab 抓 Cookie header."""
+        try:
+            from dailycheckin.utils.cdp_bridge import CDPBridge
+        except Exception as e:
+            logger.warning("CDP import 失败: %s", e)
+            return None
+        try:
+            bridge = CDPBridge.start(port=self.cdp_port)
+        except Exception as e:
+            logger.warning("CDP start 失败 (port=%d): %s", self.cdp_port, e)
+            return None
+        try:
+            tab = bridge.attach_by_url("https://pan.baidu.com")
+            if not tab:
+                logger.warning("CDP: 未找到 pan.baidu.com tab, 请在 Chrome 登录")
+                return None
+            cookies = bridge.send_cdp(
+                tab, "Network.getCookies",
+                {"urls": ["https://pan.baidu.com/", "https://pcs.baidu.com/"]},
+            )
+            parts = []
+            for c in (cookies or {}).get("cookies", []):
+                parts.append(f"{c['name']}={c['value']}")
+            cookie_str = "; ".join(parts)
+            return cookie_str or None
+        except Exception as e:
+            logger.warning("CDP cookie 抓取失败: %s", e)
+            return None
+        finally:
+            try:
+                bridge.quit()
+            except Exception:
+                pass
 
     def signin(self):
         url = "https://pan.baidu.com/rest/2.0/membership/level?app_id=250528&web=5&method=signin"

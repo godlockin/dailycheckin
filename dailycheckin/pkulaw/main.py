@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -41,6 +42,7 @@ from dailycheckin.pkulaw.auth import (
     persist_new_tokens,
     refresh_tokens,
 )
+from dailycheckin.utils.cdp_bridge import CDPBridge
 
 logger = logging.getLogger("dailycheckin.pkulaw")
 
@@ -95,33 +97,93 @@ class Pkulaw(CheckIn):
     # ------------------------------------------------------------------ refresh
 
     def _try_refresh(self, account: dict[str, Any]) -> dict[str, Any] | None:
-        """调 Keycloak refresh_token grant. 成功返回新 token dict, 失败返回 None.
+        """续期 token. 成功返回新 token dict, 失败返回 None.
+
+        策略:
+          1. 有 refresh_token -> 试 Keycloak refresh_token grant (fallback 多个 client_id)
+          2. 不可控失败 (如 unauthorized_client, 服务端 client 是 confidential) ->
+             从 9333 Chrome 抓 wso2_token (用户在 Chrome 里已登录即可)
 
         不抛, 失败时让上层记 login_failed.
         """
         refresh_token = (account.get("refresh_token") or "").strip()
-        if not refresh_token:
-            return None
         # 从 token 拿 realm
         realm_info = parse_iss_for_realm(account.get("token", ""))
         base, realm = (realm_info if realm_info else (None, None))
         if not base or not realm:
             base, realm = "https://cas.pkulaw.com", "fabao"
+
+        # 1. 试 refresh_token grant (fallback client_ids)
+        if refresh_token:
+            try:
+                return refresh_tokens(
+                    refresh_token,
+                    realm=realm,
+                    base=base,
+                    client_secret=account.get("client_secret") or None,
+                )
+            except RefreshError as e:
+                logger.warning("refresh_token grant 失败, fallback 到 CDP 抓 token: %s", e)
+            except Exception as e:
+                logger.warning("refresh_token 异常, fallback 到 CDP: %s", e)
+
+        # 2. fallback: 从 Chrome CDP 抓 token
+        return self._try_cdp_extract()
+
+    def _try_cdp_extract(self) -> dict[str, Any] | None:
+        """从 9333 Chrome 已登录的 mcp.pkulaw.com 抓新 token (wso2_token / wso2_refresh_token).
+
+        适用场景:
+          - Keycloak refresh_token grant 因 client_secret / 不可控原因失败
+          - Chrome 里 PKULAW 已登录 (cookie/localStorage 还在)
+        失败返回 None (CDP 不可达 / tab 不存在 / wso2_token 为空).
+        """
+        port = int(os.environ.get("DAILYCHECKIN_CDP_PORT", "9333"))
         try:
-            new_tokens = refresh_tokens(
-                refresh_token,
-                realm=realm,
-                base=base,
-                client_id=account.get("client_id") or None,
-                client_secret=account.get("client_secret") or None,
-            )
-            return new_tokens
-        except RefreshError as e:
-            logger.warning("refresh_token 失败: %s", e)
-            return None
+            bridge = CDPBridge.start(port=port)
         except Exception as e:
-            logger.warning("refresh_token 异常: %s", e)
+            logger.warning("CDP start 失败 (port=%d): %s", port, e)
             return None
+        try:
+            tab = bridge.attach_by_url("https://mcp.pkulaw.com")
+            if not tab:
+                logger.warning("CDP: 未找到 mcp.pkulaw.com tab, 请在 Chrome 里登录 PKULAW")
+                return None
+            try:
+                wso2_token_raw = bridge.eval(tab, 'localStorage.getItem("wso2_token")') or ""
+            except Exception as e:
+                logger.warning("CDP eval wso2_token 失败: %s", e)
+                return None
+            if not wso2_token_raw or wso2_token_raw == "null":
+                logger.warning("CDP: mcp.pkulaw.com 未登录 (wso2_token 为空), 请在 Chrome 登录")
+                return None
+            try:
+                token_obj = json.loads(wso2_token_raw)
+            except Exception as e:
+                logger.warning("CDP: wso2_token JSON parse 失败: %s", e)
+                return None
+            new_access = token_obj.get("data") or ""
+            if not new_access:
+                logger.warning("CDP: wso2_token 无 access_token data")
+                return None
+            new_refresh = ""
+            try:
+                ws_refresh_raw = bridge.eval(tab, 'localStorage.getItem("wso2_refresh_token")') or ""
+                if ws_refresh_raw and ws_refresh_raw != "null":
+                    new_refresh = json.loads(ws_refresh_raw).get("data") or ""
+            except Exception:
+                pass
+            logger.info("CDP: 从 Chrome 抓到 PKULAW token (access len=%d, refresh len=%d)",
+                        len(new_access), len(new_refresh))
+            return {"access_token": new_access, "refresh_token": new_refresh}
+        except Exception as e:
+            logger.warning("CDP extract 异常: %s", e)
+            return None
+        finally:
+            try:
+                bridge.quit()
+            except Exception:
+                pass
 
     def _persist(self, new_access: str, new_refresh: str) -> None:
         if not self.config_path:

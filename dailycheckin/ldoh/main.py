@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from dailycheckin import CheckIn
-from dailycheckin.utils.cdp_bridge import CDPBridge, UnreachableError
+from dailycheckin.utils.cdp_bridge import CDPBridge, UnreachableError, is_cdp_alive
 from dailycheckin.utils.newapi import fetch_self, get_user_id, try_checkin
 
 logger = logging.getLogger("dailycheckin.ldoh")
@@ -134,6 +135,11 @@ class LdohCheckIn(CheckIn):
     # ------------------------------------------------------------------ main
 
     def main(self) -> str:
+        # Dependency gate: skip when Node / CDP not available
+        if not shutil.which("node"):
+            return "「LD OPEN HUB 公益站签到」\n跳过: 需 node (CDP bridge)"
+        if not is_cdp_alive():
+            return "「LD OPEN HUB 公益站签到」\n跳过: CDP 未就绪 (默认 port 9333)"
         lines: list[str] = []
 
         def log(msg: str) -> None:
@@ -222,70 +228,143 @@ class LdohCheckIn(CheckIn):
     # ------------------------------------------------------------------ 单站
 
     def _process_site(self, bridge: CDPBridge, tab_id: str, site: dict[str, Any]) -> dict[str, Any]:
-        # 1. 打开登录页 (多路径候选: 各 fork 不一样)
-        login_paths = self.check_item.get("login_paths") or ("/login", "/sign-in", "/auth/login")
-        page_loaded_at = None
+        # 1. 打开登录页 (遍历所有路径, 收集最佳入口再决策)
+        login_paths = self.check_item.get("login_paths") or (
+            "/login", "/sign-in", "/auth/login", "/console", "/profile", "/console/personal", "/",
+        )
+        best: dict[str, Any] = {}  # 当前路径收集的最佳入口
+        best_path: str | None = None
+        unreachable_count = 0
         for p in login_paths:
             try:
                 bridge.goto(tab_id, f"{site['url']}{p}", 30000)
             except UnreachableError as e:
-                return {"status": "unreachable", "message": str(e)[:120]}
+                logger.debug("path %s unreachable: %s, trying next", p, e)
+                unreachable_count += 1
+                continue
             bridge.wait(2500)
-            # 检查是否找到 LinuxDO 按钮; 找到了就停
             try:
-                probe = bridge.eval(
-                    tab_id,
-                    "(() => { const els=[...document.querySelectorAll('button, a, [role=button]')];"
-                    " return els.some(e => /linux|linuxdo/i.test((e.textContent||'')+(e.getAttribute('href')||''))); })()",
-                )
-                if probe:
-                    page_loaded_at = p
-                    break
+                probe_state = self._probe_login_buttons(bridge, tab_id)
             except Exception:
-                pass
-        if not page_loaded_at:
-            return {"status": "login_disabled", "message": f"所有登录路径都找不到 LinuxDO 按钮: {login_paths}"}
+                probe_state = {}
+            logger.debug("path %s probe: %s", p, probe_state)
+            # 优先级: LinuxDo 可点 > 通用 Sign in > LinuxDo disabled
+            if probe_state.get("hasLinuxDo"):
+                best = probe_state
+                best_path = p
+                break  # 最佳, 直接用
+            if probe_state.get("genericSignIn") and not best.get("genericSignIn"):
+                best = probe_state
+                best_path = p
+            # linuxDoDisabled 不 break, 继续找更好的入口
+        probe_state = best
+        if not best_path:
+            if unreachable_count == len(login_paths):
+                return {"status": "unreachable", "message": f"所有 {len(login_paths)} 个路径都不可达"}
+            return {"status": "login_disabled", "message": f"所有登录路径都找不到可点登录入口: {login_paths}"}
 
-        # 2. 找登录按钮 (注意: 禁用按钮也算找到, 后面单独判断)
+        # 2. fallback: 没有可点 LinuxDo 按钮时, 走通用 Sign in (link 直接 goto, button 才 click)
+        if not probe_state.get("hasLinuxDo"):
+            if not probe_state.get("genericSignIn"):
+                if probe_state.get("linuxDoDisabled"):
+                    return {"status": "login_disabled", "message": "LinuxDo 按钮被禁用, 也无通用 Sign in 按钮可走"}
+                return {"status": "login_disabled", "message": "页面无 LinuxDo 按钮, 也无通用 Sign in 按钮"}
+            btn_text = probe_state["genericSignIn"]
+            btn_tag = probe_state.get("genericTag") or "BUTTON"
+            btn_href = probe_state.get("genericSignInHref")
+            navigated = False
+            if btn_tag == "A" and btn_href:
+                # SPA link: 直接 goto href 绕过 React onClick 拦截
+                target = btn_href if btn_href.startswith("http") else f"{site['url']}{btn_href}"
+                try:
+                    bridge.goto(tab_id, target, 30000)
+                    navigated = True
+                except UnreachableError as e:
+                    logger.debug("force goto %s failed: %s, fallback to click", target, e)
+            if not navigated:
+                click = bridge.click_text(tab_id, btn_text)
+                if not click.get("clicked"):
+                    return {"status": "login_disabled", "message": f"Sign in 按钮点击失败: {click.get('reason')}"}
+            bridge.wait(3500)
+            try:
+                probe_state = self._probe_login_buttons(bridge, tab_id)
+            except Exception:
+                probe_state = {}
+            if not probe_state.get("hasLinuxDo"):
+                return {"status": "login_disabled", "message": f"Sign in ({btn_text}) 展开后仍未找到 LinuxDo 入口"}
+
+        # 3. 找登录按钮 (LinuxDo 可点)
         btn = bridge.eval(
             tab_id,
-            "(() => { const els=[...document.querySelectorAll('button, a, [role=button]')];"
-            " const el=els.find(e => /linux|linuxdo/i.test((e.textContent||'')+(e.getAttribute('href')||'')));"
-            " return el ? {tag:el.tagName, txt:(el.textContent||'').trim().slice(0,30), disabled:el.disabled} : null; })()",
+            "(() => { const els=[...document.querySelectorAll('button, a, [role=button], .btn, input[type=submit]')];"
+            " const el=els.find(e => /linux|linuxdo/i.test((e.textContent||'')+(e.getAttribute('href')||'')) && !e.disabled);"
+            " return el ? {tag:el.tagName, txt:(el.textContent||'').trim().slice(0,30)} : null; })()",
         )
         if not btn:
             return {"status": "login_disabled", "message": "无 LinuxDO 按钮"}
-        if btn.get("disabled"):
-            return {"status": "login_disabled", "message": "登录按钮禁用"}
+        if not isinstance(btn, dict):
+            return {"status": "login_disabled", "message": f"按钮探测返回异常: {btn!r}"}
 
-        # 3. 真实坐标点击 (避免弹窗拦截器拦下 window.open)
+        # 4. 真实坐标点击 (避免弹窗拦截器拦下 window.open)
         click = bridge.click_text(tab_id, "linux")
         if not click.get("clicked"):
             return {"status": "login_failed", "message": f"点击无效果: {click.get('reason')}"}
         bridge.wait(2500)
 
-        # 4. 等 OAuth 流程: 协助 connect/linux.do 标签 + 轮询 localStorage.user
+        # 5. 等 OAuth 流程: 协助 connect/linux.do 标签 + 轮询 localStorage.user
         ok = self._wait_session(bridge, tab_id, site["host"], 90)
         if not ok:
             return {"status": "login_failed", "message": "OAuth 后仍未建立会话"}
 
-        # 5. 验证登录
+        # 6. 验证登录
         uid = get_user_id(bridge, tab_id)
         me = fetch_self(bridge, tab_id, uid)
         if not me:
             return {"status": "login_failed", "message": "OAuth 后仍未建立会话"}
 
-        # 6. 登录即签到 模式
+        # 7. 登录即签到 模式
         if site["host"] in self.login_is_checkin:
             return {"status": "ok", "message": "登录即签到", "user": me.get("username")}
 
-        # 7. 探测新-api 签到端点
+        # 8. 探测 new-api 签到端点
         ck = try_checkin(bridge, tab_id, uid)
         return {
             "status": ck["status"],
             "message": ck["message"][:150],
             "user": me.get("username") or me.get("display_name") or uid,
         }
+
+    def _probe_login_buttons(self, bridge: CDPBridge, tab_id: str) -> dict[str, Any]:
+        """分类探测登录按钮: LinuxDo 可点 / disabled / 通用 Sign in 按钮.
+
+        返回 dict: { hasLinuxDo, linuxDoDisabled, genericSignIn, genericSignInHref }
+        genericSignInHref: 通用 Sign in 的 href (如 '/sign-in'), 用于强制 goto 走 SPA 路由
+        """
+        result = bridge.eval(
+            tab_id,
+            r"""(() => {
+              const els = [...document.querySelectorAll('button, a, [role=button], .btn, input[type=submit]')];
+              const items = els.map(e => ({
+                tag: e.tagName,
+                text: (e.textContent || e.value || '').trim(),
+                href: e.getAttribute('href') || '',
+                disabled: !!e.disabled,
+              }));
+              const linuxDoRe = /linuxdo|linux\.do|linux do|linux 登录|continue with linux/i;
+              const hasLinuxDo = items.some(e => linuxDoRe.test(e.text + e.href) && !e.disabled);
+              const linuxDoDisabled = items.some(e => linuxDoRe.test(e.text + e.href) && e.disabled);
+              const genericRe = /^(sign in|sign-in|login|登 录|登录|登入)$/i;
+              const generic = items.find(e => genericRe.test(e.text) && !e.disabled);
+              return {
+                hasLinuxDo,
+                linuxDoDisabled,
+                genericSignIn: generic ? generic.text : null,
+                genericSignInHref: generic ? generic.href : null,
+                genericTag: generic ? generic.tag : null,
+              };
+            })()""",
+        )
+        return result if isinstance(result, dict) else {}
 
     def _wait_session(self, bridge: CDPBridge, main_tab: str, target_host: str, wait_sec: int) -> bool:
         """扫浏览器标签: 在 connect.linux.do/linux.do 上点"允许", 等 localStorage.user 建立。"""

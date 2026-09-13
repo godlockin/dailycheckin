@@ -2,13 +2,15 @@ FROM python:3.11-alpine
 
 WORKDIR /dailycheckin
 
-# Node.js (CDP bridge 子进程) + Chromium (默认 CDP target)
+# Node.js (CDP bridge 子进程) + Chromium (有头, 跑在 Xvfb 上) + VNC/noVNC
 RUN set -ex \
     && apk update && apk upgrade \
     && apk add --no-cache \
         gcc g++ make libffi-dev openssl-dev \
         nodejs npm chromium chromium-chromedriver \
         nss freetype harfbuzz ttf-dejavu \
+        xvfb xvfb-run x11vnc novnc websockify \
+        ttf-freefont font-noto-cjk \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
     && pip install --no-cache-dir dailycheckin --upgrade \
@@ -32,9 +34,13 @@ RUN rm -rf /root/.local/lib/python3.11/site-packages/dailycheckin /usr/local/lib
 
 # 默认 CDP 端口; 通过环境变量可改
 ENV DAILYCHECKIN_CDP_PORT=9333
-# alpine 容器无 GPU/Vulkan: 用老 headless 模式 + 软件 swiftshader 渲染
-ENV CHROMIUM_FLAGS="--headless --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --use-gl=swiftshader --no-first-run --hide-scrollbars --mute-audio --disable-extensions"
+ENV DISPLAY=:99
+ENV SCREEN_WIDTH=1280
+ENV SCREEN_HEIGHT=900
+ENV SCREEN_DEPTH=24
+# 有头 chromium flags (Xvfb 提供显示, 去掉 --headless 以降低验证码触发概率)
+ENV CHROMIUM_FLAGS="--no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --disable-features=Vulkan --window-size=1280,900"
 
-# 默认不启动; docker-compose 的 command 调用 entrypoint.sh
+# 容器入口: Xvfb + Chromium(CDP) + x11vnc + noVNC 常驻
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD []

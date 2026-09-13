@@ -37,6 +37,20 @@ def _resolve_node() -> str:
     return "node"  # 留原值让 subprocess 报清楚
 
 
+def is_cdp_alive(port: int | None = None, timeout: float = 2.0) -> bool:
+    """轻量检测: 不启动 Node 子进程, 仅 ping Chrome /json/version.
+
+    用于 dependency gate: 跳过缺 CDP 的运行, 避免拉起 Node 子进程后立即报错。
+    """
+    import urllib.request
+    p = port or CDP_DEFAULT_PORT
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{p}/json/version", timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 class CDPError(Exception):
     pass
 

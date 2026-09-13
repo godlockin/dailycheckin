@@ -61,31 +61,45 @@ def refresh_tokens(
     *,
     realm: str = DEFAULT_REALM,
     base: str = DEFAULT_KEYCLOAK_BASE,
-    client_id: str | None = None,
+    client_ids: list[str | None] | None = None,
     client_secret: str | None = None,
 ) -> dict[str, Any]:
     """调 Keycloak refresh_token grant, 返回新 token dict。
 
+    兼容策略: 当一个 client_id 报 unauthorized_client 时, 自动 fallback 下一个。
+    常见原因: wso2 client 配成 confidential (要求 client_secret), 但 PKULAW 用 public 模式登录。
+    Fallback 顺序覆盖常见 public client 配置。
+
     成功: {"access_token": ..., "refresh_token": ..., "expires_in": ..., "refresh_expires_in": ...}
-    失败抛 RefreshError。
+    失败抛 RefreshError (所有 client_id 都失败后)。
     """
-    data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
-    if client_id:
-        data["client_id"] = client_id
-    if client_secret:
-        data["client_secret"] = client_secret
-    resp = requests.post(
-        token_endpoint(realm, base),
-        data=data,
-        timeout=REFRESH_TIMEOUT,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if resp.status_code != 200:
-        raise RefreshError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-    payload = resp.json()
-    if "access_token" not in payload:
-        raise RefreshError(f"响应无 access_token: {payload}")
-    return payload
+    if client_ids is None:
+        client_ids = [None, "wso2", "wso2-is", "account", "public-cli", "mcp"]
+    last_err: str = ""
+    for cid in client_ids:
+        data: dict[str, Any] = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        if cid:
+            data["client_id"] = cid
+        if client_secret:
+            data["client_secret"] = client_secret
+        try:
+            resp = requests.post(
+                token_endpoint(realm, base),
+                data=data,
+                timeout=REFRESH_TIMEOUT,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        except Exception as e:
+            last_err = f"client_id={cid!r}: request error: {e}"
+            continue
+        if resp.status_code == 200:
+            payload = resp.json()
+            if "access_token" in payload:
+                return payload
+            last_err = f"client_id={cid!r}: no access_token in response"
+            continue
+        last_err = f"client_id={cid!r}: HTTP {resp.status_code}: {resp.text[:200]}"
+    raise RefreshError(f"all client_ids failed: {last_err}")
 
 
 class RefreshError(Exception):

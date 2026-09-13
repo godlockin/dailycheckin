@@ -28,11 +28,12 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import time
 from typing import Any
 
 from dailycheckin import CheckIn
-from dailycheckin.utils.cdp_bridge import CDPBridge, CDPError, UnreachableError
+from dailycheckin.utils.cdp_bridge import CDPBridge, CDPError, UnreachableError, is_cdp_alive
 
 logger = logging.getLogger("dailycheckin.tushare")
 
@@ -256,6 +257,11 @@ class Tushare(CheckIn):
     # ------------------------------------------------------------------ main
 
     def main(self) -> str:
+        # Dependency gate: skip when Node / CDP not available
+        if not shutil.which("node"):
+            return "「Tushare 每日签到 + 猜涨跌」\n跳过: 需 node (CDP bridge)"
+        if not is_cdp_alive(self.cdp_port):
+            return f"「Tushare 每日签到 + 猜涨跌」\n跳过: CDP 未就绪 (port {self.cdp_port})"
         rec_name = self.check_item.get("name") or "tushare"
         results: dict[str, dict[str, Any]] = {"sign": {}, "guess": {}}
         bridge: CDPBridge | None = None
