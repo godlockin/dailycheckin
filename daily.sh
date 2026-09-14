@@ -16,6 +16,10 @@
 set -e
 cd "$(dirname "$0")"
 
+# cron 环境 PATH 很瘦 (不读 ~/.zshrc), python3 会落到 /usr/bin/python3 (无 requests).
+# 显式前置 conda python3 (依赖装在这里).
+export PATH="/Users/chenchen/miniconda3-arm64/bin:$PATH"
+
 LOG=/tmp/daily-$(date +%Y%m%d-%H%M%S).log
 exec > >(tee -a "$LOG") 2>&1
 echo "[$(date '+%F %T')] daily start"
