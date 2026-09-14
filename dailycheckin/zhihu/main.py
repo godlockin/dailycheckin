@@ -83,9 +83,9 @@ class Zhihu(CheckIn):
         try:
             tab = bridge.attach_by_url("https://www.zhihu.com")
             if not tab:
-                rec["status"] = "skipped"
-                rec["message"] = "CDP: 未找到 zhihu.com tab, 请在 Chrome 登录"
-                return self._format([rec])
+                # tab 已被用户关掉: 新开一个 (Chrome profile 里登录态持久)
+                tab = bridge.create_tab("https://www.zhihu.com/")
+                bridge.wait(4000)
 
             try:
                 bridge.goto(tab, "https://www.zhihu.com/", 30000)

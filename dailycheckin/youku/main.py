@@ -55,33 +55,16 @@ class Youku(CheckIn):
         return s
 
     def _cdp_cookie(self) -> str | None:
-        try:
-            from dailycheckin.utils.cdp_bridge import CDPBridge
-            bridge = CDPBridge.start(port=self.cdp_port)
-            try:
-                tab = bridge.attach_by_url("https://vip.youku.com")
-                if not tab:
-                    tab = bridge.attach_by_url("https://www.youku.com")
-                if not tab:
-                    logger.warning("CDP: 未找到 youku tab, 请在 Chrome 登录")
-                    return None
-                cookies = bridge.send_cdp(
-                    tab, "Network.getCookies",
-                    {"urls": ["https://vip.youku.com/", "https://www.youku.com/", "https://api.youku.com/"]},
-                )
-                parts = []
-                for c in (cookies or {}).get("cookies", []):
-                    parts.append(f"{c['name']}={c['value']}")
-                cookie_str = "; ".join(parts)
-                return cookie_str or None
-            finally:
-                try:
-                    bridge.quit()
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.warning("CDP cookie 抓取失败: %s", e)
-            return None
+        from dailycheckin.utils.cdp_bridge import fetch_cookies
+        cookie = fetch_cookies(
+            port=self.cdp_port,
+            attach_urls=["https://vip.youku.com", "https://www.youku.com"],
+            open_url="https://www.youku.com/",
+            cookie_urls=["https://vip.youku.com/", "https://www.youku.com/", "https://api.youku.com/"],
+        )
+        if not cookie:
+            logger.warning("CDP: youku cookie 抓取失败")
+        return cookie
 
     def _api(self, s: requests.Session, path: str, method: str = "POST", data: dict | None = None):
         url = f"{API_BASE}{path}"

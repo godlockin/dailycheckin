@@ -55,31 +55,16 @@ class Acwing(CheckIn):
         return s
 
     def _cdp_cookie(self) -> str | None:
-        try:
-            from dailycheckin.utils.cdp_bridge import CDPBridge
-            bridge = CDPBridge.start(port=self.cdp_port)
-            try:
-                tab = bridge.attach_by_url("https://www.acwing.com")
-                if not tab:
-                    logger.warning("CDP: 未找到 acwing.com tab, 请在 Chrome 登录")
-                    return None
-                cookies = bridge.send_cdp(
-                    tab, "Network.getCookies",
-                    {"urls": ["https://www.acwing.com/"]},
-                )
-                parts = []
-                for c in (cookies or {}).get("cookies", []):
-                    parts.append(f"{c['name']}={c['value']}")
-                cookie_str = "; ".join(parts)
-                return cookie_str or None
-            finally:
-                try:
-                    bridge.quit()
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.warning("CDP cookie 抓取失败: %s", e)
-            return None
+        from dailycheckin.utils.cdp_bridge import fetch_cookies
+        cookie = fetch_cookies(
+            port=self.cdp_port,
+            attach_urls=["https://www.acwing.com"],
+            open_url="https://www.acwing.com/",
+            cookie_urls=["https://www.acwing.com/"],
+        )
+        if not cookie:
+            logger.warning("CDP: acwing cookie 抓取失败 (无 tab 且新开 tab 也失败)")
+        return cookie
 
     def _api(self, s: requests.Session, path: str, method: str = "POST", data: dict | None = None):
         url = f"{API_BASE}{path}"

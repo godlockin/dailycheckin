@@ -60,44 +60,16 @@ class Netease(CheckIn):
         return s
 
     def _cdp_cookie(self) -> str | None:
-        """从 9333 Chrome 已登录的 music.163.com 抓 Cookie header."""
-        try:
-            from dailycheckin.utils.cdp_bridge import CDPBridge
-        except Exception as e:
-            logger.warning("CDP import 失败: %s", e)
-            return None
-        try:
-            bridge = CDPBridge.start(port=self.cdp_port)
-        except Exception as e:
-            logger.warning("CDP start 失败 (port=%d): %s", self.cdp_port, e)
-            return None
-        try:
-            # 试多个网易云域名 (music.163.com / interface.music.163.com)
-            tab = None
-            for host in ("https://music.163.com", "https://interface.music.163.com"):
-                tab = bridge.attach_by_url(host)
-                if tab:
-                    break
-            if not tab:
-                logger.warning("CDP: 未找到 music.163.com tab, 请在 Chrome 登录")
-                return None
-            cookies = bridge.send_cdp(
-                tab, "Network.getCookies",
-                {"urls": ["https://music.163.com/", "https://interface.music.163.com/"]},
-            )
-            parts = []
-            for c in (cookies or {}).get("cookies", []):
-                parts.append(f"{c['name']}={c['value']}")
-            cookie_str = "; ".join(parts)
-            return cookie_str or None
-        except Exception as e:
-            logger.warning("CDP cookie 抓取失败: %s", e)
-            return None
-        finally:
-            try:
-                bridge.quit()
-            except Exception:
-                pass
+        from dailycheckin.utils.cdp_bridge import fetch_cookies
+        cookie = fetch_cookies(
+            port=self.cdp_port,
+            attach_urls=["https://music.163.com", "https://interface.music.163.com"],
+            open_url="https://music.163.com/",
+            cookie_urls=["https://music.163.com/", "https://interface.music.163.com/"],
+        )
+        if not cookie:
+            logger.warning("CDP: netease cookie 抓取失败")
+        return cookie
 
     def _api(self, s: requests.Session, path: str, method: str = "POST", data: dict | None = None):
         url = f"{API_BASE}{path}"

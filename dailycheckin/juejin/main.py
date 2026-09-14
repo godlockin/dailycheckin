@@ -80,8 +80,9 @@ class Juejin(CheckIn):
         try:
             tab = bridge.attach_by_url("https://juejin.cn")
             if not tab:
-                logger.warning("CDP: 未找到 juejin.cn tab, 请在 Chrome 登录")
-                return None
+                # tab 已被用户关掉: 新开一个 (Chrome profile 里登录态持久)
+                tab = bridge.create_tab("https://juejin.cn/")
+                bridge.wait(4000)
 
             # 1. Network.getCookies (HTTP-set cookies)
             net_cookies = bridge.send_cdp(

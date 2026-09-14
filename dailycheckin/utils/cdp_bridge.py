@@ -51,6 +51,58 @@ def is_cdp_alive(port: int | None = None, timeout: float = 2.0) -> bool:
         return False
 
 
+def fetch_cookies(
+    port: int,
+    attach_urls: list[str],
+    open_url: str,
+    cookie_urls: list[str] | None = None,
+) -> str | None:
+    """抓 Chrome cookie: 先 attach 已开 tab; 没有 tab 则新开 open_url 再抓。
+
+    解决: 用户关掉站点 tab 后签到模块 skipped 的问题 — Chrome profile 里
+    登录 cookie 持久化, 新开 tab 即自动带上登录态。
+
+    参数:
+      port: CDP 端口
+      attach_urls: 尝试 attach 的 tab URL 前缀 (按顺序)
+      open_url: 无 tab 时新开的页面
+      cookie_urls: Network.getCookies 的 urls 参数 (默认用 attach_urls)
+
+    返回 Cookie header 字符串 ("k=v; k2=v2"), 失败返回 None。
+    """
+    bridge: CDPBridge | None = None
+    try:
+        bridge = CDPBridge.start(port=port)
+        tab = None
+        for u in attach_urls:
+            try:
+                tab = bridge.attach_by_url(u)
+            except Exception:
+                tab = None
+            if tab:
+                break
+        if not tab:
+            try:
+                tab = bridge.create_tab(open_url)
+            except Exception:
+                return None
+            import time as _t
+            _t.sleep(4)  # 等页面加载 + cookie 落定
+        cookies = bridge.send_cdp(
+            tab, "Network.getCookies", {"urls": cookie_urls or attach_urls}
+        )
+        parts = [f"{c['name']}={c['value']}" for c in (cookies or {}).get("cookies", [])]
+        return "; ".join(parts) or None
+    except Exception:
+        return None
+    finally:
+        if bridge:
+            try:
+                bridge.quit()
+            except Exception:
+                pass
+
+
 class CDPError(Exception):
     pass
 

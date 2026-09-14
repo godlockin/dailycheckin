@@ -57,51 +57,20 @@ class Csdn(CheckIn):
         return s
 
     def _cdp_cookie(self) -> str | None:
-        """从 9333 Chrome 已登录的 csdn.net 抓 Cookie header.
-
-        CSDN 登录后可能停留在 blog.csdn.net / me.csdn.net / i.csdn.net 等子域, 不是 csdn.net 主域.
-        尝试多个 host 顺序匹配.
-        """
-        try:
-            from dailycheckin.utils.cdp_bridge import CDPBridge
-        except Exception as e:
-            logger.warning("CDP import 失败: %s", e)
-            return None
-        try:
-            bridge = CDPBridge.start(port=self.cdp_port)
-        except Exception as e:
-            logger.warning("CDP start 失败 (port=%d): %s", self.cdp_port, e)
-            return None
-        try:
-            # 尝试多个 CSDN 子域
-            tab = None
-            matched_host = None
-            for host in ("https://csdn.net", "https://blog.csdn.net", "https://me.csdn.net", "https://i.csdn.net"):
-                tab = bridge.attach_by_url(host)
-                if tab:
-                    matched_host = host
-                    break
-            if not tab:
-                logger.warning("CDP: 未找到 csdn.net/blog.csdn.net/me.csdn.net/i.csdn.net tab, 请在 Chrome 登录")
-                return None
-            logger.info("CDP: 找到 CSDN tab at %s", matched_host)
-            cookies = bridge.send_cdp(
-                tab, "Network.getCookies",
-                {"urls": ["https://csdn.net/", "https://blog.csdn.net/", "https://me.csdn.net/", "https://i.csdn.net/", "https://passport.csdn.net/"]},
-            )
-            parts = []
-            for c in (cookies or {}).get("cookies", []):
-                parts.append(f"{c['name']}={c['value']}")
-            cookie_str = "; ".join(parts)
-            return cookie_str or None
-        except Exception as e:
-            logger.warning("CDP cookie 抓取失败: %s", e)
-            return None
-        finally:
-            try:
-                bridge.quit()
-            except Exception:
-                pass
+        from dailycheckin.utils.cdp_bridge import fetch_cookies
+        hosts = ["https://csdn.net", "https://blog.csdn.net", "https://me.csdn.net", "https://i.csdn.net"]
+        cookie = fetch_cookies(
+            port=self.cdp_port,
+            attach_urls=hosts,
+            open_url="https://www.csdn.net/",
+            cookie_urls=[
+                "https://csdn.net/", "https://blog.csdn.net/", "https://me.csdn.net/",
+                "https://i.csdn.net/", "https://passport.csdn.net/",
+            ],
+        )
+        if not cookie:
+            logger.warning("CDP: csdn cookie 抓取失败")
+        return cookie
 
     def _api(self, s: requests.Session, path: str, method: str = "GET"):
         url = f"{API_BASE}{path}"
