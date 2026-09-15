@@ -158,47 +158,81 @@ class Tushare(CheckIn):
     # ------------------------------------------------------------------ sign
 
     def _do_sign(self, tab_id: str, bridge: CDPBridge) -> dict[str, Any]:
+        """privilege 页每日签到: 任务卡片 DIV.await「去完成」(tushare 2026-09 改版后按钮是 div 非 button)。
+
+        卡片结构: .action_item > (.task_title=每日签到, .await=去完成 | .finish=已完成)
+        点击后轮询验证: 卡片变已完成 / 积分明细出现今日记录 / 出现二级「立即签到」按钮。
+        """
         try:
             bridge.goto(tab_id, PRIVILEGE_URL, 30000)
         except Exception as e:
             return {"status": "failed", "message": f"goto privilege failed: {e}"}
         bridge.wait(2500)
-        # 读 Vue store / window globals 找任务列表
-        tasks = bridge.eval(
+
+        click_state = bridge.eval(
             tab_id,
             """(() => {
-              const dump = (o) => { try { return JSON.stringify(o).slice(0, 4000) } catch(e) { return null } };
-              const w = window;
-              let raw = w.__TUSHARE_TASKS__ || w.tasks || w.dailyTasks;
-              if (raw) return dump(raw);
-              const root = document.querySelector('#app') || document.body;
-              if (root && root.__vue__) {
-                try { return dump(root.__vue__.$store?.state?.tasks || root.__vue__?.tasks || root.__vue__); } catch(e) {}
-              }
-              return null;
+              const cards = [...document.querySelectorAll('.action_item')];
+              const card = cards.find(c => /每日签到/.test(((c.querySelector('.task_title')||{}).textContent)||''));
+              if (!card) return {state: 'no_card'};
+              if (card.querySelector('.finish')) return {state: 'already'};
+              const btn = card.querySelector('.await');
+              if (!btn) return {state: 'no_btn'};
+              btn.click();
+              return {state: 'clicked'};
             })()""",
         )
-        already = False
-        if tasks:
-            try:
-                arr = json.loads(tasks) if isinstance(tasks, str) else tasks
-                if isinstance(arr, list):
-                    for entry in arr:
-                        if (entry or {}).get("task_code") == "DAILY_SIGN":
-                            already = bool(entry.get("is_completed"))
-                            break
-            except Exception as e:
-                logger.warning("parse tasks json failed: %s", e)
-        if already:
-            return {"status": "skipped", "message": "DAILY_SIGN 已完成"}
-        try:
-            click = bridge.click_text_on_url("tushare.pro", "签到|立即签到|去签到|领取|完成签到")
-            if not click.get("clicked"):
-                return {"status": "failed", "message": "找不到签到按钮"}
-        except Exception as e:
-            return {"status": "failed", "message": f"点击签到失败: {e}"}
-        bridge.wait(2500)
-        return {"status": "done", "message": "已点击签到"}
+        if not isinstance(click_state, dict):
+            return {"status": "failed", "message": f"探测返回异常: {click_state!r}"}
+        if click_state.get("state") == "already":
+            return {"status": "skipped", "message": "今日已签到 (卡片显示已完成)"}
+        if click_state.get("state") == "no_card":
+            return {"status": "failed", "message": "privilege 页找不到每日签到卡片"}
+        if click_state.get("state") != "clicked":
+            return {"status": "failed", "message": "每日签到卡片无「去完成」按钮"}
+
+        # 点击后轮询: 「去完成」可能直接完成, 也可能跳转到签到子页需再点「立即签到」
+        check_js = """(() => {
+          const cards = [...document.querySelectorAll('.action_item')];
+          const card = cards.find(c => /每日签到/.test(((c.querySelector('.task_title')||{}).textContent)||''));
+          const now = new Date();
+          const ds = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+          const bodyText = (document.body ? document.body.innerText : '');
+          const hasToday = new RegExp('于 ' + ds + '[^\\\\n]*每日签到获取').test(bodyText);
+          const deep = [...document.querySelectorAll('button, a, div, span')].find(e =>
+            e.children.length === 0 && /^(立即签到|签\\s*到|去签到|领取)$/.test((e.textContent||'').trim()));
+          return {
+            finished: !!(card && card.querySelector('.finish')),
+            hasToday,
+            deepBtn: deep ? deep.textContent.trim() : null,
+            noCard: !card,
+          };
+        })()"""
+        deadline = time.time() + 20
+        deep_clicked = False
+        last: dict[str, Any] = {}
+        while time.time() < deadline:
+            bridge.wait(2000)
+            last = bridge.eval(tab_id, check_js) or {}
+            if not isinstance(last, dict):
+                continue
+            if last.get("finished") or last.get("hasToday"):
+                return {"status": "done", "message": "签到成功 (积分明细已确认)"}
+            deep_btn = last.get("deepBtn")
+            if deep_btn and not deep_clicked:
+                try:
+                    bridge.click_text(tab_id, deep_btn)
+                except Exception:
+                    pass
+                deep_clicked = True
+                continue
+            if last.get("noCard") and not deep_clicked:
+                # 「去完成」跳走了路由, 回 privilege 再验证
+                try:
+                    bridge.goto(tab_id, PRIVILEGE_URL, 20000)
+                except Exception:
+                    pass
+        return {"status": "done", "message": "已点击「去完成」, 20s 内未确认到积分记录"}
 
     # ------------------------------------------------------------------ guess
 
