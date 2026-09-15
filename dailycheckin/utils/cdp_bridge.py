@@ -71,6 +71,7 @@ def fetch_cookies(
     返回 Cookie header 字符串 ("k=v; k2=v2"), 失败返回 None。
     """
     bridge: CDPBridge | None = None
+    opened_tab: str | None = None
     try:
         bridge = CDPBridge.start(port=port)
         tab = None
@@ -83,7 +84,8 @@ def fetch_cookies(
                 break
         if not tab:
             try:
-                tab = bridge.create_tab(open_url)
+                opened_tab = bridge.create_tab(open_url)
+                tab = opened_tab
             except Exception:
                 return None
             import time as _t
@@ -97,6 +99,12 @@ def fetch_cookies(
         return None
     finally:
         if bridge:
+            # 自动新开的 tab 用完即关, 避免 Chrome 里 tab 越积越多
+            if opened_tab:
+                try:
+                    bridge.close_tab(opened_tab)
+                except Exception:
+                    pass
             try:
                 bridge.quit()
             except Exception:

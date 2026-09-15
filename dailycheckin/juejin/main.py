@@ -78,10 +78,12 @@ class Juejin(CheckIn):
             logger.warning("CDP start 失败 (port=%d): %s", self.cdp_port, e)
             return None
         try:
+            opened_tab = None
             tab = bridge.attach_by_url("https://juejin.cn")
             if not tab:
                 # tab 已被用户关掉: 新开一个 (Chrome profile 里登录态持久)
-                tab = bridge.create_tab("https://juejin.cn/")
+                opened_tab = bridge.create_tab("https://juejin.cn/")
+                tab = opened_tab
                 bridge.wait(4000)
 
             # 1. Network.getCookies (HTTP-set cookies)
@@ -117,6 +119,12 @@ class Juejin(CheckIn):
             logger.warning("CDP cookie 抓取失败: %s", e)
             return None
         finally:
+            # 自动新开的 tab 用完即关
+            if opened_tab:
+                try:
+                    bridge.close_tab(opened_tab)
+                except Exception:
+                    pass
             try:
                 bridge.quit()
             except Exception:

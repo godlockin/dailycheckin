@@ -80,11 +80,13 @@ class Zhihu(CheckIn):
             rec["message"] = "CDP start 失败: " + str(e)
             return self._format([rec])
 
+        opened_tab = None
         try:
             tab = bridge.attach_by_url("https://www.zhihu.com")
             if not tab:
                 # tab 已被用户关掉: 新开一个 (Chrome profile 里登录态持久)
-                tab = bridge.create_tab("https://www.zhihu.com/")
+                opened_tab = bridge.create_tab("https://www.zhihu.com/")
+                tab = opened_tab
                 bridge.wait(4000)
 
             try:
@@ -136,6 +138,12 @@ class Zhihu(CheckIn):
             rec["message"] = "签到异常: " + type(e).__name__ + ": " + str(e)
         finally:
             if bridge:
+                # 自动新开的 tab 用完即关
+                if opened_tab:
+                    try:
+                        bridge.close_tab(opened_tab)
+                    except Exception:
+                        pass
                 try:
                     bridge.quit()
                 except Exception:

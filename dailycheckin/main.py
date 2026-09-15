@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -9,6 +10,21 @@ import requests
 from dailycheckin.__version__ import __version__
 from dailycheckin.configs import checkin_map, get_checkin_info, get_notice_info
 from dailycheckin.utils.message import push_message
+
+# 各模块 _format 输出里的失败标记: status 关键字 / "失败 N>0" / "跳过 N>0"
+_FAILED_STATUS_PAT = re.compile(r"\b(failed|login_failed|error|unreachable)\b|异常|错误", re.I)
+_FAILED_COUNT_PAT = re.compile(r"(?:失败|跳过|错误)\s*(\d+)")
+
+
+def _has_failure(msg: str) -> bool:
+    """解析模块返回的格式化文本, 判断是否含真实失败 (上游 main 无条件打 ✅ 会掩盖失败)."""
+    text = msg or ""
+    if _FAILED_STATUS_PAT.search(text):
+        return True
+    for m in _FAILED_COUNT_PAT.finditer(text):
+        if int(m.group(1)) > 0:
+            return True
+    return False
 
 
 def parse_arguments():
@@ -93,7 +109,11 @@ def checkin():
                 try:
                     msg = check_func(check_item).main()
                     content_list.append(f"「{check_name}」\n{msg}")
-                    print(f"第 {index + 1} 个账号: ✅✅✅✅✅")
+                    if _has_failure(msg):
+                        print(f"第 {index + 1} 个账号: ❌❌❌❌❌")
+                        print(msg)
+                    else:
+                        print(f"第 {index + 1} 个账号: ✅✅✅✅✅")
                 except Exception as e:
                     content_list.append(f"「{check_name}」\n{e}")
                     print(f"第 {index + 1} 个账号: ❌❌❌❌❌\n{e}")
