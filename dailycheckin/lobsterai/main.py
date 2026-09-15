@@ -1,11 +1,16 @@
 """有道 LobsterAI 每日签到（+100 积分/号/天）。
 
-认证: 配置每账号 uid + access_token
-  "LOBSTERAI": [
-    { "name": "我的账号", "uid": "12345", "access_token": "eyJ..." }
-  ]
+认证: 鉴权用 cookie `lobsterai_web_session` (从已登录 Chrome profile 抓取), 非 Bearer token.
+  字段名 access_token 保持向后兼容 (用户原 standalone 脚本用此名), 实际值 = session cookie.
 
-API 走 urllib (stdlib, 不引入 requests 依赖), 模仿原 standalone 脚本的 slot/context/actions 流程。
+配置 (config.json):
+  "LOBSTERAI": [
+    {
+      "name": "我的账号",
+      "uid": "13122249996",                     // 仅用于日志/显示
+      "access_token": "rajGgiAgDPdkK3oD_BVH..." // 值 = lobsterai_web_session cookie
+    }
+  ]
 """
 from __future__ import annotations
 
@@ -38,13 +43,14 @@ def _resolve_client_version() -> str:
     return v
 
 
-def _api(method: str, path: str, tok: str, body: dict | None = None) -> dict:
+def _api(method: str, path: str, sess: str, body: dict | None = None) -> dict:
+    """鉴权: Cookie: lobsterai_web_session=<sess> (无 Authorization 头 — 服务端忽略, 用 cookie 鉴权)."""
     req = urllib.request.Request(
         BASE + path,
         method=method,
         data=json.dumps(body).encode() if body is not None else None,
         headers={
-            "Authorization": "Bearer " + tok,
+            "Cookie": f"lobsterai_web_session={sess}",
             "Accept": "application/json",
             "Content-Type": "application/json",
             "User-Agent": "LobsterAI/" + _CLIENT_VERSION,
@@ -59,7 +65,7 @@ def _api(method: str, path: str, tok: str, body: dict | None = None) -> dict:
     if d.get("code") != 0:
         raise RuntimeError(f"code={d.get('code')} msg={d.get('message') or d.get('msg')}")
     if not isinstance(d.get("data"), dict):
-        raise RuntimeError("data 为空（accessToken 可能已失效）")
+        raise RuntimeError("data 为空（session cookie 可能已失效）")
     return d["data"]
 
 
@@ -72,17 +78,18 @@ class LobsterAI(CheckIn):
 
     def __init__(self, check_item: dict[str, Any] | None = None):
         self.account = check_item or {}
+        # access_token 字段实际值 = lobsterai_web_session cookie 字符串
         self.uid = str(self.account.get("uid") or "")
-        self.access_token = (self.account.get("access_token") or "").strip()
+        self.session = (self.account.get("access_token") or "").strip()
 
     def main(self) -> str:
         global _CLIENT_VERSION
         name = self.account.get("name") or "lobsterai"
         rec: dict[str, Any] = {"name": name}
 
-        if not self.uid or not self.access_token:
+        if not self.session:
             rec["status"] = "skipped"
-            rec["message"] = "config 缺 uid 或 access_token"
+            rec["message"] = "config 缺 access_token (lobsterai_web_session cookie 值)"
             return self._format([rec])
 
         # 1. 解析 clientVersion (模块级缓存, 全天只请求 1 次)
@@ -103,7 +110,7 @@ class LobsterAI(CheckIn):
                 rec["reward"] = f"+{gained:g}"
         except Exception as e:
             msg = str(e)
-            if "data 为空" in msg or "code=401" in msg or "code=403" in msg:
+            if "data 为空" in msg or "code=51102" in msg or "请先登录" in msg or "session cookie 可能已失效" in msg:
                 rec["status"] = "login_failed"
             else:
                 rec["status"] = "failed"
@@ -119,7 +126,7 @@ class LobsterAI(CheckIn):
             f"placement=desktop_sidebar&clientVersion={_CLIENT_VERSION}"
             f"&containerApiVersion=2&platform=win32"
         )
-        slot = _api("GET", f"/api/client-activities/slot?{q}", self.access_token)
+        slot = _api("GET", f"/api/client-activities/slot?{q}", self.session)
         if slot.get("slotState") != "available" or not slot.get("activity"):
             return f"无可用活动 (slotState={slot.get('slotState')!r})", None
         code = slot["activity"]["activityCode"]
@@ -127,14 +134,14 @@ class LobsterAI(CheckIn):
         ctx = _api(
             "GET",
             f"/api/client-activities/{code}/context?configRevision={rev}",
-            self.access_token,
+            self.session,
         )
         if ctx["state"].get("claimedToday") or "check_in" not in (ctx.get("actions") or []):
             return "今天已签到, 跳过", None
         res = _api(
             "POST",
             f"/api/client-activities/{code}/actions/check_in",
-            self.access_token,
+            self.session,
             {
                 "configRevision": rev,
                 "idempotencyKey": str(uuid.uuid4()),
@@ -172,7 +179,7 @@ if __name__ == "__main__":
     import sys
 
     cfg = {}
-    if not sys.stdin.isatty():
+    if not sys.stdin.istty():
         raw = sys.stdin.read() or "{}"
         cfg = json.loads(raw)
     elif len(sys.argv) > 1:
