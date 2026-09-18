@@ -237,56 +237,101 @@ class Tushare(CheckIn):
     # ------------------------------------------------------------------ guess
 
     def _do_guess(self, tab_id: str, bridge: CDPBridge) -> dict[str, Any]:
-        for url in GUESS_URL_CANDIDATES:
-            try:
-                bridge.goto(tab_id, url, 30000)
-            except Exception:
-                continue
-            bridge.wait(2500)
-            data = bridge.eval(
+        """猜今日涨跌: privilege 页 contest_guess 组件 (tushare 2026 改版后入口在此).
+
+        状态判定:
+          - 无 .contest_guess / 状态非"竞猜中" -> inactive
+          - 已投: 组件显示 "已选 87%/13%" 投票结果 (link_num/dislike_num 有百分比)
+                  + 胜率区显示 "已选"; 或积分明细今日已有"参与猜涨跌"
+          - 待投: like/dislike 是可点圆钮, 随机投一个
+        """
+        try:
+            bridge.goto(tab_id, PRIVILEGE_URL, 20000)
+        except Exception:
+            pass
+        bridge.wait(3000)
+
+        # 等 contest 组件异步加载 (最多 12s)
+        state = None
+        for _ in range(12):
+            state = bridge.eval(
                 tab_id,
                 """(() => {
-                  const w = window;
-                  const root = document.querySelector('#app') || document.body;
-                  let guess = w.__TUSHARE_GUESS__;
-                  if (!guess && root && root.__vue__) {
-                    try { guess = root.__vue__.$store?.state?.guess || root.__vue__?.guess; } catch(e) {}
-                  }
-                  if (!guess) {
-                    const txt = document.body ? document.body.innerText : '';
-                    const active = /进行中|投票中|猜/i.test(txt);
-                    return JSON.stringify({period: {status: active ? 1 : 0}, user_guess: {}});
-                  }
-                  return JSON.stringify(guess);
+                  const guess = document.querySelector('.contest_guess');
+                  const header = (document.body.innerText||'').match(/猜今日涨跌\\s*(\\S+)/);
+                  if (!guess) return {present: false, phase: header ? header[1] : null};
+                  const like = guess.querySelector('.like');
+                  const dislike = guess.querySelector('.dislike');
+                  const likePct = (guess.querySelector('.link_num')?.textContent||'').trim();
+                  const dislikePct = (guess.querySelector('.dislike_num')?.textContent||'').trim();
+                  // 已投票后组件渲染为百分比结果条 ("已选 87%"/"13%"); 未投时是 看涨/看跌 圆钮
+                  const voted = /\\d+%/.test(likePct) && /\\d+%/.test(dislikePct)
+                    || /已选/.test((guess.closest('.contest')||document.body).innerText);
+                  const likeText = (like?.textContent||'').trim();
+                  const dislikeText = (dislike?.textContent||'').trim();
+                  return {
+                    present: true,
+                    phase: header ? header[1] : null,
+                    voted, likePct, dislikePct, likeText, dislikeText,
+                  };
                 })()""",
             )
-            if not data:
-                continue
-            try:
-                info = json.loads(data) if isinstance(data, str) else data
-            except Exception:
-                continue
-            period = (info or {}).get("period") or {}
-            user_guess = (info or {}).get("user_guess") or {}
-            if int(period.get("status", 0)) != 1:
-                return {"status": "inactive", "message": f"本期未开始 (status={period.get('status')})"}
-            if user_guess.get("vote"):
-                return {"status": "skipped", "message": f"已投 (vote={user_guess.get('vote')})"}
-            direction = 1 if secrets.randbits(1) == 0 else 2
-            label = "涨" if direction == 1 else "跌"
-            try:
-                click = bridge.click_text_on_url("tushare.pro", "^(看涨|涨|up|1)$")
-                if not click.get("clicked"):
-                    click = bridge.click_text_on_url("tushare.pro", "^(看跌|跌|down|2)$")
-                    if click.get("clicked"):
-                        direction = 2
-            except Exception as e:
-                return {"status": "failed", "message": f"点击投票失败: {e}"}
-            if not click.get("clicked"):
-                return {"status": "failed", "message": "找不到看涨/看跌按钮"}
-            bridge.wait(2000)
-            return {"status": "done", "message": f"已投{label} (direction={direction})"}
-        return {"status": "failed", "message": "所有 猜涨跌 URL 都不可达"}
+            if isinstance(state, dict) and state.get("present"):
+                break
+            bridge.wait(1000)
+
+        if not isinstance(state, dict) or not state.get("present"):
+            return {"status": "inactive", "message": "本期无猜涨跌活动"}
+
+        phase = state.get("phase") or ""
+        if "竞猜" not in phase and "进行" not in phase and "中" not in phase:
+            return {"status": "inactive", "message": f"本期未开始 ({phase or '非竞猜中'})"}
+
+        if state.get("voted"):
+            return {"status": "skipped", "message": f"今日已投 ({state.get('likePct')}/{state.get('dislikePct')})"}
+
+        # 待投: 点 like/dislike 圆钮 (随机方向)
+        direction = 1 if secrets.randbits(1) == 0 else 2
+        label = "涨" if direction == 1 else "跌"
+        selector = ".contest_guess .like" if direction == 1 else ".contest_guess .dislike"
+        clicked = bridge.eval(
+            tab_id,
+            f"""(() => {{
+              const el = document.querySelector({json.dumps(selector)});
+              if (!el) return false;
+              el.click();
+              return true;
+            }})()""",
+        )
+        if not clicked:
+            # 回退尝试另一个方向
+            direction = 2 if direction == 1 else 1
+            label = "跌" if label == "涨" else "涨"
+            selector = ".contest_guess .dislike" if direction == 2 else ".contest_guess .like"
+            clicked = bridge.eval(
+                tab_id,
+                f"""(() => {{
+                  const el = document.querySelector({json.dumps(selector)});
+                  if (!el) return false;
+                  el.click();
+                  return true;
+                }})()""",
+            )
+        if not clicked:
+            return {"status": "failed", "message": "找不到看涨/看跌投票钮"}
+
+        bridge.wait(2500)
+        # 可能弹确认框
+        bridge.eval(
+            tab_id,
+            """(() => {
+              const ok = [...document.querySelectorAll('button, .el-button')]
+                .find(b => /^(确定|确认|参与|提交)/.test((b.textContent||'').trim()));
+              if (ok && ok.offsetParent !== null) ok.click();
+            })()""",
+        )
+        bridge.wait(1500)
+        return {"status": "done", "message": f"已投{label} (direction={direction})"}
 
     # ------------------------------------------------------------------ main
 
