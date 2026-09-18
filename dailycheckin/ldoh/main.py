@@ -36,6 +36,27 @@ DEAD_STATUS_TOKENS = {"down", "dead", "offline", "red", "error", "disabled", "bl
 # 登录即签到的站点 (无需 API 签到端点)
 LOGIN_IS_CHECKIN_HOSTS_DEFAULT = ("ps.air-outer.com", "anyrouter.top")
 
+# goto 网络抖动容错: 早超时 + 1 次重试 (整签到流程两站串行, 网络卡会白等 30s × N)
+_GOTO_TIMEOUT_MS = 15000
+_GOTO_RETRIES = 1
+
+
+def _goto_with_retry(bridge, tab_id: str, url: str) -> None:
+    """goto + 1 次重试: 15s timeout 失败 (Chrome 加载/网络抖动常见) 重试一次, 最后抛 UnreachableError."""
+    last_err: Exception | None = None
+    for i in range(_GOTO_RETRIES + 1):
+        try:
+            bridge.goto(tab_id, url, _GOTO_TIMEOUT_MS)
+            return
+        except UnreachableError as e:
+            last_err = e
+            if i < _GOTO_RETRIES:
+                logger.debug("goto %s 超时, 重试: %s", url, e)
+                import time as _t
+                _t.sleep(0.5)
+    assert last_err is not None
+    raise last_err
+
 
 class LdohCheckIn(CheckIn):
     name = "LD OPEN HUB"
@@ -164,7 +185,7 @@ class LdohCheckIn(CheckIn):
             # 1. ldoh 登录 (复用 Chrome 已有的 LinuxDo 会话, 跳到 ldoh 首页)
             log(f"打开 ldoh: {self.ldoh_url}")
             try:
-                bridge.goto(tab_id, self.ldoh_url, 30000)
+                _goto_with_retry(bridge, tab_id, self.ldoh_url)
             except UnreachableError as e:
                 return f"「LD OPEN HUB 公益站签到」\nldoh 不可达: {e}"
             bridge.wait(2000)
@@ -237,7 +258,7 @@ class LdohCheckIn(CheckIn):
         unreachable_count = 0
         for p in login_paths:
             try:
-                bridge.goto(tab_id, f"{site['url']}{p}", 30000)
+                _goto_with_retry(bridge, tab_id, f"{site['url']}{p}")
             except UnreachableError as e:
                 logger.debug("path %s unreachable: %s, trying next", p, e)
                 unreachable_count += 1
@@ -277,7 +298,7 @@ class LdohCheckIn(CheckIn):
                 # SPA link: 直接 goto href 绕过 React onClick 拦截
                 target = btn_href if btn_href.startswith("http") else f"{site['url']}{btn_href}"
                 try:
-                    bridge.goto(tab_id, target, 30000)
+                    _goto_with_retry(bridge, tab_id, target)
                     navigated = True
                 except UnreachableError as e:
                     logger.debug("force goto %s failed: %s, fallback to click", target, e)
