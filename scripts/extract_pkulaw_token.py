@@ -8,6 +8,7 @@ refresh_token 存在 wso2_refresh_token。
 """
 import argparse
 import json
+import os
 import shutil
 import sys
 from base64 import b64decode
@@ -111,6 +112,19 @@ def main():
         # backup + write
         backup = CONFIG_PATH.with_suffix(".json.bak")
         shutil.copy2(CONFIG_PATH, backup)
+        # backup 含完整 token, 同样收紧权限
+        try:
+            os.chmod(backup, 0o600)
+        except OSError:
+            pass
+        # 轮转: 删除 7 天前的 .bak (每个备份日期是 daily-checkin 的命名, 保留最近 1 个)
+        try:
+            bak_dir = CONFIG_PATH.parent
+            for old in sorted(bak_dir.glob("config.json.*.bak")):
+                if old != backup and old.stat().st_mtime < (backup.stat().st_mtime - 7 * 86400):
+                    old.unlink()
+        except OSError:
+            pass
         print(f"\nbackup -> {backup}", flush=True)
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         # Token 是高敏感凭据: 600 (owner rw only), 避免被同机其他用户读
