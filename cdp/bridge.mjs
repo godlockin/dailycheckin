@@ -257,9 +257,15 @@ async function handleOp(req) {
         return { ok: true, data: { tabId: t.id, url: info.url } };
       }
       case 'clickTextOnUrl': {
-        // 找到第一个 URL 包含 req.urlContains 的标签, attach, 在该标签内点文字
+        // 匹配 tab: req.urlContains 视为 hostname (e.g. "linux.do"), 用 URL host 等于或 .endswith
+        // 避免 substring 误匹配 (e.g. "linux.do" substring-matches "malware-linux.do.com")
         const all = await listTabs();
-        const target = all.find((t) => (t.url || '').includes(req.urlContains));
+        const target = all.find((t) => {
+          try {
+            const host = new URL(t.url || '').host;
+            return host === req.urlContains || host.endsWith('.' + req.urlContains);
+          } catch (e) { return false; }
+        });
         if (!target) return { ok: true, data: { clicked: false, reason: 'no_matching_tab' } };
         const r = await fetch(`${CDP_URL}/json`);
         const arr = await r.json();

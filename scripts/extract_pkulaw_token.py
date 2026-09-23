@@ -36,6 +36,7 @@ def decode_jwt_payload(token: str) -> dict | None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="实际写 config.json (默认 dry-run)")
+    ap.add_argument("--full", action="store_true", help="输出完整 token (默认 redact 前 30 字符)")
     ap.add_argument("--port", type=int, default=9333)
     args = ap.parse_args()
 
@@ -95,8 +96,16 @@ def main():
 
         if not args.apply:
             print("\n[dry-run] 不写文件. 重跑加 --apply 实际更新.", flush=True)
-            print(f"\n新 PKULAW 段 (可手工粘贴):", flush=True)
-            print(json.dumps({"PKULAW": new_pkulaw}, ensure_ascii=False, indent=2), flush=True)
+            print(f"\n新 PKULAW 段 (token 已 redact, 加 --full 看完整):", flush=True)
+            redacted = json.loads(json.dumps(new_pkulaw))  # deep copy
+            for acc in redacted:
+                if "token" in acc:
+                    acc["token"] = acc["token"][:30] + "...[REDACTED " + str(len(acc["token"])) + " chars]"
+                if "refresh_token" in acc:
+                    acc["refresh_token"] = acc["refresh_token"][:20] + "...[REDACTED]"
+            print(json.dumps({"PKULAW": redacted}, ensure_ascii=False, indent=2), flush=True)
+            if not args.full:
+                print("\n  (注: 真实 token 已 redact. 加 --full 输出原始 token.)", flush=True)
             return
 
         # backup + write
@@ -104,7 +113,12 @@ def main():
         shutil.copy2(CONFIG_PATH, backup)
         print(f"\nbackup -> {backup}", flush=True)
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"updated {CONFIG_PATH}", flush=True)
+        # Token 是高敏感凭据: 600 (owner rw only), 避免被同机其他用户读
+        try:
+            os.chmod(CONFIG_PATH, 0o600)
+        except OSError as e:
+            print(f"warn: chmod 0600 失败 ({e}), 文件可能对其他用户可读", file=sys.stderr)
+        print(f"updated {CONFIG_PATH} (mode 0600)", flush=True)
         print("✓ PKULAW token 已写入 config/config.json", flush=True)
 
     finally:

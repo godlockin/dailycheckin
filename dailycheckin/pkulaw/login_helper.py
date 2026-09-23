@@ -29,6 +29,7 @@ def main() -> int:
     p.add_argument("--login-url", default="https://cas.pkulaw.com/auth/realms/fabao/protocol/openid-connect/auth?client_id=wso2&redirect_uri=https://mcp.pkulaw.com/&response_type=code&scope=openid")
     p.add_argument("--timeout-sec", type=int, default=180)
     p.add_argument("--post-login-url", default="https://mcp.pkulaw.com/")
+    p.add_argument("--full", action="store_true", help="输出完整 token (默认 redact 前 30 字符, 避免 token 漏到日志/对话)")
     args = p.parse_args()
 
     print(f"启动 CDP bridge, port={args.cdp_port}", file=sys.stderr)
@@ -115,7 +116,17 @@ def main() -> int:
             "client_id": "wso2",  # 默认猜测
         }
         print("\n# 把下面这行加到 config.json 的 \"PKULAW\" 数组里:", file=sys.stderr)
-        print(json.dumps(out, ensure_ascii=False))
+        if not args.full:
+            # 默认 redact 防止 token 漏到终端日志/Claude 对话
+            redacted = json.loads(json.dumps(out))
+            if "token" in redacted and redacted["token"]:
+                redacted["token"] = redacted["token"][:30] + f"...[REDACTED {len(out.get('token',''))} chars]"
+            if "refresh_token" in redacted and redacted["refresh_token"]:
+                redacted["refresh_token"] = redacted["refresh_token"][:20] + "...[REDACTED]"
+            print(json.dumps(redacted, ensure_ascii=False))
+            print("\n# (注: 真实 token 已 redact. 加 --full 输出原始 token)", file=sys.stderr)
+        else:
+            print(json.dumps(out, ensure_ascii=False))
         return 0
     finally:
         try:
