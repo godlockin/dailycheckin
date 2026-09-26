@@ -237,63 +237,62 @@ class Tushare(CheckIn):
     # ------------------------------------------------------------------ guess
 
     def _do_guess(self, tab_id: str, bridge: CDPBridge) -> dict[str, Any]:
-        """猜今日涨跌: privilege 页 contest_guess 组件 (tushare 2026 改版后入口在此).
+        """猜下一交易日涨跌: privilege 页 .contest 卡片。
 
-        状态判定:
-          - 无 .contest_guess / 状态非"竞猜中" -> inactive
-          - 已投: 组件显示 "已选 87%/13%" 投票结果 (link_num/dislike_num 有百分比)
-                  + 胜率区显示 "已选"; 或积分明细今日已有"参与猜涨跌"
-          - 待投: like/dislike 是可点圆钮, 随机投一个
+        UI (2026-09 实测):
+          - 投票钮: .like_round img (看涨) / .dislike_round img (看跌), 点击即静默提交
+          - 未投票: 分布条文字 "78%/22%"
+          - 已投票: 分布条文字变成 "已选 78%/22% (img 仍可点, 不会禁用, 必须靠"已选"判定)
+          - 活动状态: 标题旁 "竞猜中"
         """
         try:
             bridge.goto(tab_id, PRIVILEGE_URL, 20000)
         except Exception:
             pass
-        bridge.wait(3000)
 
-        # 等 contest 组件异步加载 (最多 12s)
-        state = None
+        # 等 contest 异步加载 (最多 12s). eval JSON.stringify 返回 str, 需 parse
+        state: dict[str, Any] | None = None
         for _ in range(12):
-            state = bridge.eval(
+            bridge.wait(1000)
+            raw = bridge.eval(
                 tab_id,
-                """(() => {
-                  const guess = document.querySelector('.contest_guess');
-                  const header = (document.body.innerText||'').match(/猜今日涨跌\\s*(\\S+)/);
-                  if (!guess) return {present: false, phase: header ? header[1] : null};
-                  const like = guess.querySelector('.like');
-                  const dislike = guess.querySelector('.dislike');
-                  const likePct = (guess.querySelector('.link_num')?.textContent||'').trim();
-                  const dislikePct = (guess.querySelector('.dislike_num')?.textContent||'').trim();
-                  // 已投票后组件渲染为百分比结果条 ("已选 87%"/"13%"); 未投时是 看涨/看跌 圆钮
-                  const voted = /\\d+%/.test(likePct) && /\\d+%/.test(dislikePct)
-                    || /已选/.test((guess.closest('.contest')||document.body).innerText);
-                  const likeText = (like?.textContent||'').trim();
-                  const dislikeText = (dislike?.textContent||'').trim();
+                r"""JSON.stringify((() => {
+                  const contest = document.querySelector('.contest');
+                  if (!contest) return {present: false};
+                  const text = contest.innerText || '';
+                  const phase = (text.match(/猜[^\n]*?\s+(\S+)/) || [])[1] || null;
                   return {
                     present: true,
-                    phase: header ? header[1] : null,
-                    voted, likePct, dislikePct, likeText, dislikeText,
+                    phase,
+                    hasLike: !!contest.querySelector('.like_round img'),
+                    hasDislike: !!contest.querySelector('.dislike_round img'),
+                    voted: /已选/.test(text),
+                    text: text.slice(0, 200),
                   };
-                })()""",
+                })())""",
             )
+            try:
+                state = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                state = None
             if isinstance(state, dict) and state.get("present"):
                 break
-            bridge.wait(1000)
 
         if not isinstance(state, dict) or not state.get("present"):
             return {"status": "inactive", "message": "本期无猜涨跌活动"}
 
         phase = state.get("phase") or ""
-        if "竞猜" not in phase and "进行" not in phase and "中" not in phase:
+        if "竞猜" not in phase and "中" not in phase:
             return {"status": "inactive", "message": f"本期未开始 ({phase or '非竞猜中'})"}
 
         if state.get("voted"):
-            return {"status": "skipped", "message": f"今日已投 ({state.get('likePct')}/{state.get('dislikePct')})"}
+            return {"status": "skipped", "message": f"今日已投 (分布: {state['text'].split(chr(10).replace(chr(10), ' '))[:60]})"}
 
-        # 待投: 点 like/dislike 圆钮 (随机方向)
+        # 待投: 随机点 涨/跌 img (.like_round img / .dislike_round img)
         direction = 1 if secrets.randbits(1) == 0 else 2
         label = "涨" if direction == 1 else "跌"
-        selector = ".contest_guess .like" if direction == 1 else ".contest_guess .dislike"
+        selector = ".like_round img" if direction == 1 else ".dislike_round img"
+
         clicked = bridge.eval(
             tab_id,
             f"""(() => {{
@@ -304,10 +303,10 @@ class Tushare(CheckIn):
             }})()""",
         )
         if not clicked:
-            # 回退尝试另一个方向
+            # 回退另一个方向
             direction = 2 if direction == 1 else 1
             label = "跌" if label == "涨" else "涨"
-            selector = ".contest_guess .dislike" if direction == 2 else ".contest_guess .like"
+            selector = ".dislike_round img" if direction == 2 else ".like_round img"
             clicked = bridge.eval(
                 tab_id,
                 f"""(() => {{
@@ -318,20 +317,15 @@ class Tushare(CheckIn):
                 }})()""",
             )
         if not clicked:
-            return {"status": "failed", "message": "找不到看涨/看跌投票钮"}
+            return {"status": "failed", "message": "找不到看涨/看跌投票 img"}
 
-        bridge.wait(2500)
-        # 可能弹确认框
-        bridge.eval(
-            tab_id,
-            """(() => {
-              const ok = [...document.querySelectorAll('button, .el-button')]
-                .find(b => /^(确定|确认|参与|提交)/.test((b.textContent||'').trim()));
-              if (ok && ok.offsetParent !== null) ok.click();
-            })()""",
-        )
-        bridge.wait(1500)
-        return {"status": "done", "message": f"已投{label} (direction={direction})"}
+        # 验证 (轮询 8s): 分布条出现 "已选"
+        for _ in range(8):
+            bridge.wait(1000)
+            txt = bridge.eval(tab_id, "(document.querySelector('.contest')||{}).innerText||''")
+            if "已选" in (txt or ""):
+                return {"status": "done", "message": f"已投{label} (direction={direction})"}
+        return {"status": "done", "message": f"已点击{label}, 但未在 8s 内确认 '已选'"}
 
     # ------------------------------------------------------------------ main
 
